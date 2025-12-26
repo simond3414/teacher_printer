@@ -1,0 +1,30 @@
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Working directories (don't commit user data)
+printer_inputs/*.pdf
+printer_processes/
+printer_outputs/
+
+# But keep the directories themselves
+!printer_inputs/.gitkeep
+!printer_processes/.gitkeep
+!printer_outputs/.gitkeep
+
+# Temporary files
+temp_*.pdf
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
