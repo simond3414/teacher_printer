@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  teacher-printer:
+    build: .
+    ports:
+      - "8507:8507"
+    volumes:
+      - ./printer_inputs:/app/printer_inputs
+      - ./printer_outputs:/app/printer_outputs
+      - ./printer_processes:/app/printer_processes
+    environment:
+      - STREAMLIT_SERVER_PORT=8507
+      - STREAMLIT_SERVER_ADDRESS=0.0.0.0
+    restart: unless-stopped
