@@ -2,14 +2,30 @@
 
 A Streamlit-based web application designed for teachers to convert multi-page PDF documents into custom layouts with multiple images per page. Perfect for creating handouts, study sheets, or condensed materials from existing PDFs.
 
+## Architecture
+
+Uses **Redis Queue for background processing** with three containerized services:
+
+- **Web UI** (512MB, 0.5 CPU): Lightweight Streamlit interface - stays responsive
+- **Redis** (256MB, 0.25 CPU): Job queue message broker
+- **Worker** (1.5GB, 1.0 CPU): Background processor for heavy PDF operations
+
+**Key Benefits:**
+- Submit jobs and close browser - processing continues in background
+- UI never freezes during PDF conversion or generation
+- Manual refresh to check job status (no auto-polling)
+- Controlled resource usage with one job at a time
+
 ## Features
 
 ### 🎯 Core Functionality
+- **Background Processing**: Upload PDFs and let worker process while you do other things
 - **PDF to Image Conversion**: Convert PDF pages to high-quality images (200 DPI)
 - **Flexible Layouts**: Arrange 1-9 images per output page with automatic grid layouts
 - **Batch Processing**: Process images in manageable mini-batches of 4 images
 - **Job Management**: Create, load, and manage multiple PDF processing jobs
 - **Persistent Storage**: Auto-save selections and resume work at any time
+- **Job Status Monitoring**: Manual refresh to check background job progress
 
 ### 📋 Job Management
 - **Friendly Job Names**: Assign custom names to jobs for easy identification
@@ -42,42 +58,30 @@ A Streamlit-based web application designed for teachers to convert multi-page PD
 
 ## Installation
 
+### Option 1: Docker (Recommended for Production)
+
+See [DOCKER.md](DOCKER.md) for complete Docker setup instructions.
+
+**Quick Start:**
+```bash
+docker-compose up --build -d
+# Access at http://localhost:8507
+```
+
+### Option 2: Local Development
+
+See [SETUP_REDIS.md](SETUP_REDIS.md) for local development setup with Redis.
+
+**Quick Start:**
+1. Start Redis: `docker run -d -p 6379:6379 redis:7-alpine`
+2. Install dependencies: `pip install -r requirements.txt`
+3. Terminal 1 - Worker: `rq worker --url redis://localhost:6379 default`
+4. Terminal 2 - Streamlit: `streamlit run app.py --server.port=8507`
+
 ### Prerequisites
-- Python 3.8 or higher
+- Docker and Docker Compose (for containerized deployment)
+- OR Python 3.8+ and Redis (for local development)
 - pip (Python package manager)
-
-### Setup
-
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/teacher_printer.git
-   cd teacher_printer
-   ```
-
-2. **Create a virtual environment** (recommended)
-   ```bash
-   python -m venv venv
-   
-   # On Linux/Mac:
-   source venv/bin/activate
-   
-   # On Windows:
-   venv\Scripts\activate
-   ```
-
-3. **Install dependencies**
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-4. **Run the application**
-   ```bash
-   streamlit run app.py
-   ```
-
-5. **Access the app**
-   - The application will automatically open in your default browser
-   - Default URL: `http://localhost:8501`
 
 ## Usage
 
@@ -96,7 +100,13 @@ A Streamlit-based web application designed for teachers to convert multi-page PD
 
 4. **Create Job**
    - Click "Start New Job"
-   - PDF will be automatically converted to images
+   - Job submitted to background worker for PDF conversion
+   - You'll see "✅ PDF conversion job submitted!" message
+
+5. **Monitor Progress**
+   - Click "🔄 Refresh Job Status" in sidebar to check progress
+   - Wait for "✅ Complete!" message
+   - Click "View" button when conversion finishes
 
 ### Processing Images
 
@@ -127,15 +137,17 @@ A Streamlit-based web application designed for teachers to convert multi-page PD
 
 2. **Generate PDF**
    - Click "🎯 Generate PDF" button
-   - Wait for processing (progress spinner will show)
+   - Job submitted to background worker
+   - Click "🔄 Refresh Job Status" to check progress
 
 3. **Download**
-   - Click "📥 Download PDF" to save the file
+   - When complete, click "📥 Download PDF" to save the file
    - Filename uses your friendly name (or job ID)
 
 4. **Regenerate** (if needed)
    - Make changes to your selections
    - Click "🔄 Regenerate PDF" to rebuild
+   - New job submitted to background worker
 
 ### Managing Jobs
 
@@ -155,7 +167,12 @@ A Streamlit-based web application designed for teachers to convert multi-page PD
 ## Directory Structure
 
 ```
-teacher_printer/
+teacworker.py                   # Background job processor (RQ worker)
+├── requirements.txt            # Python dependencies
+├── docker-compose.yml          # Three-service container orchestration
+├── DOCKER.md                   # Docker deployment guide
+├── SETUP_REDIS.md              # Redis setup and local development
+├── Redis_Guide.md              # General Redis implementation guide
 ├── app.py                      # Main Streamlit application
 ├── requirements.txt            # Python dependencies
 ├── modules/                    # Application modules
@@ -179,6 +196,8 @@ teacher_printer/
 
 ### Key Dependencies
 - **Streamlit**: Web application framework
+- **Redis**: In-memory data store for job queue
+- **RQ (Redis Queue)**: Background job processing
 - **pdf2image**: PDF page conversion to PNG images
 - **Pillow (PIL)**: Image manipulation and rotation
 - **reportlab**: PDF generation with custom layouts
@@ -189,6 +208,7 @@ teacher_printer/
 - `current_batch`: Current batch number (0-indexed)
 - `last_page_number`: Tracks last assigned page for auto-increment
 - `selections`: In-memory cache of image-to-page mappings
+- `pending_jobs`: Tracks background jobs submitted to Redis
 
 ### Data Persistence
 - **metadata.json**: Job information (name, creation date, source PDF)
@@ -203,14 +223,24 @@ teacher_printer/
 
 ## Tips & Best Practices
 
-1. **Batch Size**: Process 4 images at a time to reduce cognitive load
-2. **Naming**: Use descriptive friendly names for easy job identification
-3. **Validation**: Review the page distribution sidebar before generating
-4. **Auto-increment**: Let the first image set the page, others follow automatically
-5. **Exclusion**: Use page 0 (exclude) for cover pages or unwanted content
-6. **Regeneration**: Safe to regenerate PDFs multiple times - old versions are replaced
+1. **Background Processing**: You can close the browser after submitting jobs - the worker keeps processing
+2. **Refresh Status**: Click "🔄 Refresh Job Status" manually to check on background jobs
+3. **Batch Size**: Process 4 images at a time to reduce cognitive load
+4. **Naming**: Use descriptive friendly names for easy job identification
+5. **Validation**: Review the page distribution sidebar before generating
+6. **Auto-increment**: Let the first image set the page, others follow automatically
+7. **Exclusion**: Use page 0 (exclude) for cover pages or unwanted content
+8. **Regeneration**: Safe to regenerate PDFs multiple times - old versions are replaced
 
 ## Troubleshooting
+
+### Job stuck in "Processing..."
+- Check worker logs: `docker-compose logs -f teacher-printer-worker`
+- Restart worker: `docker-compose restart teacher-printer-worker`
+
+### Redis connection failed
+- Ensure Redis container is running: `docker ps | grep redis`
+- Test connection: `docker exec teacher-printer-redis redis-cli ping`
 
 ### Images appear small in 2-image layout
 - The app automatically rotates 2-image pages to landscape orientation
@@ -226,20 +256,26 @@ teacher_printer/
 
 ### PDF generation fails
 - Verify all image files exist in job's `images/` folder
-- Check console for detailed error messages with timestamps
+- Check worker logs for detailed error messages with timestamps
+- Clear stuck jobs: `docker exec teacher-printer-redis redis-cli FLUSHDB`
 
 ## Debug Mode
 
-The application logs key events to the console with UK timestamps:
+The application logs key events with UK timestamps to help monitor background processing:
 
+**Web UI logs** (Streamlit console):
 ```
 [26/12/2025 14:30:45] NEW JOB CREATED: My Worksheet (ID: job_20251226_143045)
 [26/12/2025 14:32:10] JOB LOADED: My Worksheet (ID: job_20251226_143045)
-[26/12/2025 14:35:22] PDF GENERATION STARTED: My Worksheet (ID: job_20251226_143045)
-[26/12/2025 14:35:28] PDF GENERATION COMPLETED: My Worksheet - 3 pages
 ```
 
-Monitor the terminal/console running Streamlit for these logs.
+**Worker logs** (`docker-compose logs -f teacher-printer-worker`):
+```
+[26/12/2025 14:30:50] WORKER: PDF conversion started for My Worksheet
+[26/12/2025 14:31:15] WORKER: PDF conversion completed for My Worksheet - 24 images
+[26/12/2025 14:35:22] WORKER: PDF generation started for My Worksheet
+[26/12/2025 14:35:28] WORKER: PDF generation completed for My Worksheet
+```
 
 ## Contributing
 
