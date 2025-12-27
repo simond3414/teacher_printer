@@ -254,6 +254,8 @@ def render_job_selector():
             if selected_job:
                 info = job_infos.get(selected_job) or job_manager.get_job_info(selected_job)
                 st.write(f"**Images:** {info['image_count']}")
+                if info.get('dpi'):
+                    st.write(f"**DPI:** {info['dpi']}")
                 st.write(f"**Progress:** {info['progress_percent']}%")
                 st.progress(info['progress_percent'] / 100)
                 
@@ -279,7 +281,11 @@ def render_batch_interface(job_id, batch_num):
     """Display images with page number selectors."""
     info = job_manager.get_job_info(job_id) or {}
     display_name = info.get('friendly_name') or job_id
-    st.header(f"Job: {display_name}")
+    dpi = info.get('dpi')
+    if dpi:
+        st.header(f"Job: {display_name} • {dpi} DPI")
+    else:
+        st.header(f"Job: {display_name}")
     if info.get('friendly_name'):
         st.caption(f"ID: {job_id}")
     

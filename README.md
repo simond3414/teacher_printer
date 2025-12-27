@@ -20,7 +20,7 @@ Uses **Redis Queue for background processing** with three containerized services
 
 ### 🎯 Core Functionality
 - **Background Processing**: Upload PDFs and let worker process while you do other things
-- **PDF to Image Conversion**: Convert PDF pages to high-quality images (200 DPI)
+- **PDF to Image Conversion**: Convert PDF pages to high-quality images with adaptive DPI (120-200 based on file size)
 - **Flexible Layouts**: Arrange 1-9 images per output page with automatic grid layouts
 - **Batch Processing**: Process images in manageable mini-batches of 4 images
 - **Job Management**: Create, load, and manage multiple PDF processing jobs
@@ -29,9 +29,10 @@ Uses **Redis Queue for background processing** with three containerized services
 
 ### 📋 Job Management
 - **Friendly Job Names**: Assign custom names to jobs for easy identification
-- **Job History**: View all existing jobs with creation dates and progress tracking
+- **Job History**: View all existing jobs with creation dates, DPI used, and progress tracking
 - **Duplicate Prevention**: Automatic validation prevents duplicate job names
 - **Delete Operations**: Remove individual jobs or delete all jobs at once
+- **DPI Display**: See the actual DPI used for conversion in job info and batch interface
 
 ### 🖼️ Image Processing
 - **Selective Exclusion**: Exclude specific images from the final PDF
@@ -211,15 +212,22 @@ teacworker.py                   # Background job processor (RQ worker)
 - `pending_jobs`: Tracks background jobs submitted to Redis
 
 ### Data Persistence
-- **metadata.json**: Job information (name, creation date, source PDF)
+- **metadata.json**: Job information (name, creation date, source PDF, DPI used)
 - **selections.json**: Image-to-page number mappings
 - **Auto-save**: Triggered on batch navigation and PDF generation
 
 ### Image Processing
-- **Conversion**: 200 DPI JPEG images (quality=85)
+- **Adaptive DPI Conversion**: Automatically adjusts DPI based on PDF file size to balance quality with memory constraints:
+  - **< 20 MB**: 200 DPI (high quality)
+  - **20-50 MB**: 175 DPI (good quality)
+  - **50-100 MB**: 150 DPI (acceptable quality)
+  - **> 100 MB**: 120 DPI (readable, memory-safe)
+- **DPI Persistence**: Used DPI is saved to job metadata and displayed throughout the UI
+- **Format**: JPEG images with quality=85 compression
 - **Thumbnails**: Max 800px for UI display
 - **Rotation**: 2-image layouts rotated -90° to landscape orientation
 - **Sorting**: Numerical sorting ensures consistent image order
+- **Memory Optimization**: Page-by-page processing with explicit garbage collection
 
 ## Tips & Best Practices
 

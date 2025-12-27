@@ -144,6 +144,9 @@ def get_job_info(job_id):
     if image_count > 0:
         progress = round((selections_count / image_count) * 100, 1)
     
+    # Get DPI from metadata if available
+    dpi = metadata.get('dpi', None)
+    
     return {
         'job_id': job_id,
         'pdf_name': 'original.pdf',
@@ -152,7 +155,8 @@ def get_job_info(job_id):
         'selections_count': selections_count,
         'progress_percent': progress,
         'created': created_display,
-        'friendly_name': friendly_name
+        'friendly_name': friendly_name,
+        'dpi': dpi
     }
 
 def delete_job(job_id):

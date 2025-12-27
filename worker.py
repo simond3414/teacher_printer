@@ -47,6 +47,20 @@ def process_pdf_to_images(job_id, pdf_path, dpi=200):
                 rq_job.meta['dpi'] = used_dpi
             rq_job.save_meta()
         
+        # Persist DPI to job metadata for permanent storage
+        if success and used_dpi:
+            job_folder = os.path.join(job_manager.JOBS_BASE_DIR, job_id)
+            metadata_path = os.path.join(job_folder, 'metadata.json')
+            if os.path.exists(metadata_path):
+                try:
+                    with open(metadata_path, 'r') as f:
+                        metadata = job_manager.json.load(f)
+                    metadata['dpi'] = used_dpi
+                    with open(metadata_path, 'w') as f:
+                        job_manager.json.dump(metadata, f, indent=2)
+                except Exception as e:
+                    print(f"Warning: Could not save DPI to metadata: {e}")
+        
         # Log completion
         timestamp = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
         print(f"[{timestamp}] WORKER: PDF conversion completed for {job_display} - {count} images")
