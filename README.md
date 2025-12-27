@@ -304,5 +304,5 @@ Built with:
 ---
 
 **Author**: Simon  
-**Version**: 1.0.0  
+**Version**: 1.2
 **Last Updated**: December 2025

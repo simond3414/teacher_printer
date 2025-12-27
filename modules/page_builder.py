@@ -169,7 +169,11 @@ def create_page_with_images(c, images_folder, image_names, layout, a4_width, a4_
                 # Use original file path for non-rotated images
                 img_for_draw = img_path
             
-            img_width, img_height = img.size
+            # Use rotated dimensions if image was rotated, otherwise original
+            if rotated_img:
+                img_width, img_height = rotated_img.size
+            else:
+                img_width, img_height = img.size
             aspect = img_width / img_height
             
             # Calculate scaled dimensions to fit cell while maintaining aspect
