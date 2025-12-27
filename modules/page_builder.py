@@ -132,6 +132,8 @@ def create_page_with_images(c, images_folder, image_names, layout, a4_width, a4_
         a4_width (float): A4 width in points
         a4_height (float): A4 height in points
     """
+    import gc
+    
     rows, cols = layout
     margin = 10 * mm
     
@@ -156,12 +158,13 @@ def create_page_with_images(c, images_folder, image_names, layout, a4_width, a4_
             
             # Open image to get dimensions
             img = Image.open(img_path)
+            rotated_img = None
             
             # Rotate image 90 degrees clockwise for 2-image horizontal layout
             if len(image_names) == 2:
-                img = img.rotate(-90, expand=True)
+                rotated_img = img.rotate(-90, expand=True)
                 # Wrap rotated image for reportlab
-                img_for_draw = ImageReader(img)
+                img_for_draw = ImageReader(rotated_img)
             else:
                 # Use original file path for non-rotated images
                 img_for_draw = img_path
@@ -191,6 +194,17 @@ def create_page_with_images(c, images_folder, image_names, layout, a4_width, a4_
                 height=draw_height,
                 preserveAspectRatio=True
             )
+            
+            # MEMORY CLEANUP: Explicitly close and delete PIL images
+            img.close()
+            if rotated_img:
+                rotated_img.close()
+            del img
+            if rotated_img:
+                del rotated_img, img_for_draw
+    
+    # Cleanup after page complete
+    gc.collect()
     
     # Fill remaining cells with blank space if needed
     total_cells = rows * cols

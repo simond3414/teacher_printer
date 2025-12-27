@@ -37,12 +37,14 @@ def process_pdf_to_images(job_id, pdf_path, dpi=200):
         job_display = metadata.get('friendly_name') or job_id
         print(f"[{timestamp}] WORKER: PDF conversion started for {job_display}")
         
-        # Convert PDF to images
-        success, msg, count = pdf_processor.convert_pdf_to_images(pdf_path, job_id, dpi)
+        # Convert PDF to images (use adaptive DPI if dpi not explicitly set)
+        success, msg, count, used_dpi = pdf_processor.convert_pdf_to_images(pdf_path, job_id, dpi if dpi != 200 else None)
         
         if rq_job:
             rq_job.meta['progress'] = 100
             rq_job.meta['status'] = 'Complete'
+            if used_dpi:
+                rq_job.meta['dpi'] = used_dpi
             rq_job.save_meta()
         
         # Log completion
@@ -56,7 +58,8 @@ def process_pdf_to_images(job_id, pdf_path, dpi=200):
             'success': success,
             'message': msg,
             'image_count': count,
-            'job_id': job_id
+            'job_id': job_id,
+            'dpi': used_dpi
         }
     
     except Exception as e:
@@ -72,7 +75,8 @@ def process_pdf_to_images(job_id, pdf_path, dpi=200):
             'success': False,
             'message': error_msg,
             'image_count': 0,
-            'job_id': job_id
+            'job_id': job_id,
+            'dpi': None
         }
 
 
