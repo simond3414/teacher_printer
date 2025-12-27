@@ -3,7 +3,34 @@
 import streamlit as st
 import os
 from PIL import Image
+from redis import Redis
+from rq import Queue
+from rq.job import Job
 from modules import utils, job_manager, pdf_processor, batch_manager, page_builder
+import worker  # Import worker module for job functions
+
+# Redis connection
+REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
+REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
+
+@st.cache_resource
+def get_redis_connection():
+    """Get Redis connection with caching."""
+    try:
+        redis_conn = Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=False)
+        redis_conn.ping()
+        return redis_conn
+    except Exception as e:
+        st.error(f"⚠️ Cannot connect to Redis at {REDIS_HOST}:{REDIS_PORT}. Make sure Redis is running.")
+        st.info("To start Redis locally: `docker run -d -p 6379:6379 redis:7-alpine`")
+        return None
+
+def get_queue():
+    """Get RQ queue instance."""
+    redis_conn = get_redis_connection()
+    if redis_conn:
+        return Queue('default', connection=redis_conn)
+    return None
 
 def get_current_selections(existing_selections):
     """Merge current widget values with existing selections from disk, maintaining order."""
@@ -167,18 +194,36 @@ def render_job_selector():
                     if job_id:
                         display_name = job_name.strip() if job_name and job_name.strip() else job_id
                         st.success(f"Job created: {display_name}")
-                        # Convert PDF to images
-                        with st.spinner("Converting PDF to images..."):
+                        
+                        # Submit PDF conversion to background queue
+                        queue = get_queue()
+                        if queue:
                             paths = job_manager.get_job_paths(job_id)
-                            success, msg, count = pdf_processor.convert_pdf_to_images(paths['pdf'], job_id)
-                            if success:
-                                st.success(msg)
-                                st.session_state.current_job_id = job_id
-                                st.session_state.current_batch = 0
-                                st.session_state.last_page_number = 1
-                                st.rerun()
-                            else:
-                                st.error(msg)
+                            rq_job = queue.enqueue(
+                                worker.process_pdf_to_images,
+                                job_id,
+                                paths['pdf'],
+                                200,
+                                job_timeout='10m'
+                            )
+                            
+                            # Store RQ job ID in session state
+                            if 'pending_jobs' not in st.session_state:
+                                st.session_state.pending_jobs = {}
+                            st.session_state.pending_jobs[job_id] = {
+                                'rq_job_id': rq_job.id,
+                                'type': 'pdf_conversion',
+                                'display_name': display_name
+                            }
+                            
+                            st.success("✅ PDF conversion job submitted! Processing in background...")
+                            st.info("📊 Check job status in the sidebar. The page will update automatically when complete.")
+                            st.session_state.current_job_id = job_id
+                            st.session_state.current_batch = 0
+                            st.session_state.last_page_number = 1
+                            st.rerun()
+                        else:
+                            st.error("❌ Cannot submit job - Redis not available")
                     else:
                         st.error(result)
                 else:
@@ -233,6 +278,38 @@ def render_batch_interface(job_id, batch_num):
     
     # Get batch info - use mini-batches of 4 images
     total_images = pdf_processor.get_image_count(job_id)
+    
+    # Check if images are still being processed
+    if total_images == 0:
+        # Check if there's a pending conversion job
+        if 'pending_jobs' in st.session_state and job_id in st.session_state.pending_jobs:
+            st.info("⏳ PDF is being converted to images in the background. Please wait...")
+            st.caption("Check the sidebar for job status. The page will update automatically when complete.")
+            return
+        else:
+            st.warning("⚠️ No images found for this job. The conversion may have failed or not started yet.")
+            if st.button("🔄 Start PDF Conversion"):
+                paths = job_manager.get_job_paths(job_id)
+                queue = get_queue()
+                if queue and os.path.exists(paths['pdf']):
+                    rq_job = queue.enqueue(
+                        worker.process_pdf_to_images,
+                        job_id,
+                        paths['pdf'],
+                        200,
+                        job_timeout='10m'
+                    )
+                    
+                    if 'pending_jobs' not in st.session_state:
+                        st.session_state.pending_jobs = {}
+                    st.session_state.pending_jobs[job_id] = {
+                        'rq_job_id': rq_job.id,
+                        'type': 'pdf_conversion',
+                        'display_name': display_name
+                    }
+                    st.success("✅ PDF conversion job submitted!")
+                    st.rerun()
+            return
     batches = batch_manager.create_batches(total_images, batch_size=4)
     total_batches = len(batches)
     
@@ -389,29 +466,43 @@ def render_pdf_generator():
         
         with col1:
             if st.button("🔄 Regenerate PDF", type="secondary", use_container_width=True):
-                with st.spinner("Regenerating PDF..."):
-                    # Auto-save current selections before generating
-                    existing_selections = batch_manager.load_selections(job_id)
-                    current_selections = get_current_selections(existing_selections)
-                    batch_manager.save_selections(job_id, current_selections)
-                    
-                    # Validate page counts (max 9 images per page)
-                    page_counts = get_page_counts(current_selections)
-                    invalid_pages = [page for page, count in page_counts.items() if count > 9]
-                    
-                    if invalid_pages:
-                        error_msg = f"❌ Pages with too many images: {', '.join([f'Page {p} ({page_counts[p]} images)' for p in invalid_pages])}. Maximum 9 images per page."
-                        st.error(error_msg)
-                    else:
-                        success, msg = page_builder.build_output_pdf(job_id, current_selections, paths['output'])
+                # Auto-save current selections before generating
+                existing_selections = batch_manager.load_selections(job_id)
+                current_selections = get_current_selections(existing_selections)
+                batch_manager.save_selections(job_id, current_selections)
+                
+                # Validate page counts (max 9 images per page)
+                page_counts = get_page_counts(current_selections)
+                invalid_pages = [page for page, count in page_counts.items() if count > 9]
+                
+                if invalid_pages:
+                    error_msg = f"❌ Pages with too many images: {', '.join([f'Page {p} ({page_counts[p]} images)' for p in invalid_pages])}. Maximum 9 images per page."
+                    st.error(error_msg)
+                else:
+                    # Submit PDF generation to background queue
+                    queue = get_queue()
+                    if queue:
+                        rq_job = queue.enqueue(
+                            worker.generate_output_pdf,
+                            job_id,
+                            current_selections,
+                            paths['output'],
+                            job_timeout='10m'
+                        )
                         
-                        if success:
-                            st.success(msg)
-                            import time
-                            time.sleep(1)
-                            st.rerun()
-                        else:
-                            st.error(msg)
+                        # Store RQ job ID in session state
+                        if 'pending_jobs' not in st.session_state:
+                            st.session_state.pending_jobs = {}
+                        st.session_state.pending_jobs[f"{job_id}_pdf"] = {
+                            'rq_job_id': rq_job.id,
+                            'type': 'pdf_generation',
+                            'display_name': info.get('friendly_name') or job_id
+                        }
+                        
+                        st.success("✅ PDF regeneration submitted! Processing in background...")
+                        st.rerun()
+                    else:
+                        st.error("❌ Cannot submit job - Redis not available")
         
         with col2:
             # Download button
@@ -430,29 +521,43 @@ def render_pdf_generator():
     else:
         # No PDF exists - show generate button
         if st.button("🎯 Generate PDF", type="primary"):
-            with st.spinner("Building PDF..."):
-                # Auto-save current selections before generating
-                existing_selections = batch_manager.load_selections(job_id)
-                current_selections = get_current_selections(existing_selections)
-                batch_manager.save_selections(job_id, current_selections)
-                
-                # Validate page counts (max 9 images per page)
-                page_counts = get_page_counts(current_selections)
-                invalid_pages = [page for page, count in page_counts.items() if count > 9]
-                
-                if invalid_pages:
-                    error_msg = f"❌ Pages with too many images: {', '.join([f'Page {p} ({page_counts[p]} images)' for p in invalid_pages])}. Maximum 9 images per page."
-                    st.error(error_msg)
-                else:
-                    success, msg = page_builder.build_output_pdf(job_id, current_selections, paths['output'])
+            # Auto-save current selections before generating
+            existing_selections = batch_manager.load_selections(job_id)
+            current_selections = get_current_selections(existing_selections)
+            batch_manager.save_selections(job_id, current_selections)
+            
+            # Validate page counts (max 9 images per page)
+            page_counts = get_page_counts(current_selections)
+            invalid_pages = [page for page, count in page_counts.items() if count > 9]
+            
+            if invalid_pages:
+                error_msg = f"❌ Pages with too many images: {', '.join([f'Page {p} ({page_counts[p]} images)' for p in invalid_pages])}. Maximum 9 images per page."
+                st.error(error_msg)
+            else:
+                # Submit PDF generation to background queue
+                queue = get_queue()
+                if queue:
+                    rq_job = queue.enqueue(
+                        worker.generate_output_pdf,
+                        job_id,
+                        current_selections,
+                        paths['output'],
+                        job_timeout='10m'
+                    )
                     
-                    if success:
-                        st.success(msg)
-                        import time
-                        time.sleep(1)
-                        st.rerun()
-                    else:
-                        st.error(msg)
+                    # Store RQ job ID in session state
+                    if 'pending_jobs' not in st.session_state:
+                        st.session_state.pending_jobs = {}
+                    st.session_state.pending_jobs[f"{job_id}_pdf"] = {
+                        'rq_job_id': rq_job.id,
+                        'type': 'pdf_generation',
+                        'display_name': info.get('friendly_name') or job_id
+                    }
+                    
+                    st.success("✅ PDF generation submitted! Processing in background...")
+                    st.rerun()
+                else:
+                    st.error("❌ Cannot submit job - Redis not available")
 
 
 
@@ -460,6 +565,62 @@ def render_job_manager():
     """Sidebar UI for managing jobs."""
     with st.sidebar:
         st.header("Job Management")
+        
+        # Display pending background jobs
+        # Display pending background jobs
+        if 'pending_jobs' in st.session_state and st.session_state.pending_jobs:
+            st.subheader("🔄 Background Jobs")
+            
+            # Manual refresh button
+            if st.button("🔄 Refresh Job Status", use_container_width=True):
+                st.rerun()
+            
+            redis_conn = get_redis_connection()
+            
+            if redis_conn:
+                completed_jobs = []
+                
+                for job_key, job_info in st.session_state.pending_jobs.items():
+                    try:
+                        rq_job = Job.fetch(job_info['rq_job_id'], connection=redis_conn)
+                        status = rq_job.get_status()
+                        
+                        if status == 'finished':
+                            st.success(f"✅ {job_info['display_name']} - {job_info['type']} complete!")
+                            completed_jobs.append(job_key)
+                            
+                            # Button to view completed job
+                            if job_info['type'] == 'pdf_conversion':
+                                if st.button(f"View {job_info['display_name']}", key=f"view_{job_key}"):
+                                    st.rerun()
+                        
+                        elif status == 'failed':
+                            st.error(f"❌ {job_info['display_name']} - {job_info['type']} failed")
+                            completed_jobs.append(job_key)
+                            if rq_job.exc_info:
+                                with st.expander("Error details"):
+                                    st.code(rq_job.exc_info)
+                        
+                        elif status in ['queued', 'started']:
+                            # Show progress
+                            meta = rq_job.meta
+                            progress = meta.get('progress', 0)
+                            status_msg = meta.get('status', 'Processing...')
+                            
+                            st.info(f"⏳ {job_info['display_name']} - {job_info['type']}")
+                            st.caption(status_msg)
+                            if progress > 0:
+                                st.progress(progress / 100)
+                    
+                    except Exception as e:
+                        st.warning(f"⚠️ Cannot check job status: {str(e)}")
+                        completed_jobs.append(job_key)
+                
+                # Remove completed jobs from pending list
+                for job_key in completed_jobs:
+                    del st.session_state.pending_jobs[job_key]
+            
+            st.divider()
         
         jobs = job_manager.list_jobs()
         
