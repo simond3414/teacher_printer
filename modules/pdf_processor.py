@@ -28,12 +28,12 @@ def convert_pdf_to_images(pdf_path, job_id, dpi=200):
         image_count = 0
         for i, page in enumerate(pages, start=1):
             # Save full-resolution image
-            img_filename = f"img_{i:03d}.png"
+            img_filename = f"img_{i:03d}.jpg"
             img_path = os.path.join(images_folder, img_filename)
-            page.save(img_path, 'PNG')
+            page.save(img_path, 'JPEG', quality=85)
             
             # Generate and save thumbnail
-            thumb_path = os.path.join(thumbnails_folder, f"thumb_{i:03d}.png")
+            thumb_path = os.path.join(thumbnails_folder, f"thumb_{i:03d}.jpg")
             generate_thumbnail(img_path, thumb_path, max_size=800)
             
             image_count += 1
@@ -61,7 +61,7 @@ def generate_thumbnail(image_path, output_path, max_size=800):
         img.thumbnail((max_size, max_size), Image.Resampling.LANCZOS)
         
         # Save thumbnail
-        img.save(output_path, 'PNG', optimize=True)
+        img.save(output_path, 'JPEG', quality=85)
         return True
     
     except Exception as e:
@@ -81,5 +81,5 @@ def get_image_count(job_id):
     if not os.path.exists(images_folder):
         return 0
     
-    images = [f for f in os.listdir(images_folder) if f.endswith('.png')]
+    images = [f for f in os.listdir(images_folder) if f.endswith('.jpg')]
     return len(images)

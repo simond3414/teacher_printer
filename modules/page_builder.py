@@ -147,7 +147,7 @@ def create_page_with_images(c, images_folder, image_names, layout, a4_width, a4_
         row = idx // cols
         col = idx % cols
         
-        img_path = os.path.join(images_folder, f"{img_name}.png")
+        img_path = os.path.join(images_folder, f"{img_name}.jpg")
         
         if os.path.exists(img_path):
             # Calculate position (PDF origin is bottom-left)

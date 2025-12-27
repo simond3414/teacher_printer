@@ -130,7 +130,7 @@ def get_job_info(job_id):
     # Count images
     image_count = 0
     if os.path.exists(images_folder):
-        image_count = len([f for f in os.listdir(images_folder) if f.endswith('.png')])
+        image_count = len([f for f in os.listdir(images_folder) if f.endswith('.jpg')])
     
     # Count selections
     selections_count = 0

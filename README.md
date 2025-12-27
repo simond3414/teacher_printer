@@ -184,7 +184,7 @@ teacworker.py                   # Background job processor (RQ worker)
 ├── printer_inputs/            # Temporary PDF uploads
 ├── printer_processes/         # Active job storage
 │   └── job_YYYYMMDD_HHMMSS/  # Individual job folders
-│       ├── images/            # Converted PDF pages (PNG)
+│       ├── images/            # Converted PDF pages (JPEG)
 │       ├── thumbnails/        # Display thumbnails
 │       ├── original.pdf       # Source PDF
 │       ├── metadata.json      # Job metadata
@@ -198,7 +198,7 @@ teacworker.py                   # Background job processor (RQ worker)
 - **Streamlit**: Web application framework
 - **Redis**: In-memory data store for job queue
 - **RQ (Redis Queue)**: Background job processing
-- **pdf2image**: PDF page conversion to PNG images
+- **pdf2image**: PDF page conversion to JPEG images
 - **Pillow (PIL)**: Image manipulation and rotation
 - **reportlab**: PDF generation with custom layouts
 - **PyPDF2**: PDF validation
@@ -216,7 +216,7 @@ teacworker.py                   # Background job processor (RQ worker)
 - **Auto-save**: Triggered on batch navigation and PDF generation
 
 ### Image Processing
-- **Conversion**: 200 DPI PNG images
+- **Conversion**: 200 DPI JPEG images (quality=85)
 - **Thumbnails**: Max 800px for UI display
 - **Rotation**: 2-image layouts rotated -90° to landscape orientation
 - **Sorting**: Numerical sorting ensures consistent image order

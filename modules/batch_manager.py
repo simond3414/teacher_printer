@@ -39,8 +39,8 @@ def get_batch_images(job_id, batch_start, batch_end):
     batch_thumbnails = []
     
     for i in range(batch_start + 1, batch_end + 1):
-        img_name = f"img_{i:03d}.png"
-        thumb_name = f"thumb_{i:03d}.png"
+        img_name = f"img_{i:03d}.jpg"
+        thumb_name = f"thumb_{i:03d}.jpg"
         
         img_path = os.path.join(images_folder, img_name)
         thumb_path = os.path.join(thumbnails_folder, thumb_name)
