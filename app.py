@@ -7,6 +7,13 @@ from redis import Redis
 from rq import Queue
 from rq.job import Job
 from modules import utils, job_manager, pdf_processor, batch_manager, page_builder
+import sys
+import os
+
+# Add current directory to path for worker import
+if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import worker  # Import worker module for job functions
 
 # Redis connection
