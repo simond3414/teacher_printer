@@ -40,43 +40,59 @@ def get_queue():
     return None
 
 def get_current_selections(existing_selections):
-    """Merge current widget values with existing selections from disk, maintaining order."""
+    """Merge current widget values with existing selections from disk, maintaining order.
+
+    Handles three cases per image key:
+    - Excluded via checkbox: saved as 0
+    - Assigned to a page: saved as that page number (>0)
+    - Not yet processed in UI: no entry created
+    """
     merged = {}
-    # Iterate through existing selections to maintain original order
+
+    # 1) Start with what's already saved, letting current widget states override
     for img_key, saved_value in existing_selections.items():
-        # Check if this image is excluded (checkbox state takes precedence)
         exclude_key = f"exclude_{img_key}"
         if st.session_state.get(exclude_key, False):
-            # If excluded, set page to 0
             merged[img_key] = 0
         else:
-            # Use page number from widget if available, otherwise saved value
             widget_key = f"page_{img_key}"
             merged[img_key] = st.session_state.get(widget_key, saved_value)
-    
-    # Add any new selections from session state that weren't in existing (shouldn't happen normally)
-    # Collect all page_ keys and sort them numerically to maintain image order
-    new_keys = []
+
+    # 2) Collect new images seen only in the current UI state
+    page_keys = []
     for key in st.session_state.keys():
         if key.startswith("page_") and not key.startswith("page_num_"):
             img_key = key.replace("page_", "")
             if img_key not in merged:
-                new_keys.append(img_key)
-    
-    # Sort numerically (img_001, img_002, etc)
-    try:
-        new_keys.sort(key=lambda x: int(x.split('_')[1]))
-    except (ValueError, IndexError):
-        new_keys.sort()  # Fallback to alphabetical if parsing fails
-    
-    for img_key in new_keys:
+                page_keys.append(img_key)
+
+    # 3) Also collect images that only have an exclude checkbox (no page widget)
+    exclude_only_keys = []
+    for key in st.session_state.keys():
+        if key.startswith("exclude_") and st.session_state.get(key, False):
+            img_key = key.replace("exclude_", "")
+            if img_key not in merged and f"page_{img_key}" not in st.session_state:
+                exclude_only_keys.append(img_key)
+
+    def sort_img_keys(keys):
+        try:
+            return sorted(keys, key=lambda x: int(x.split('_')[1]))
+        except Exception:
+            return sorted(keys)
+
+    # 4) Add page-keyed images (respect exclude if checked)
+    for img_key in sort_img_keys(page_keys):
         widget_key = f"page_{img_key}"
         exclude_key = f"exclude_{img_key}"
         if st.session_state.get(exclude_key, False):
             merged[img_key] = 0
         else:
             merged[img_key] = st.session_state.get(widget_key, 1)
-    
+
+    # 5) Add exclude-only images as excluded
+    for img_key in sort_img_keys(exclude_only_keys):
+        merged[img_key] = 0
+
     return merged
 
 def get_page_counts(selections_dict):
