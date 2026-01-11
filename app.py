@@ -4,9 +4,8 @@ import streamlit as st
 import os
 from PIL import Image
 from redis import Redis
-from rq import Queue
 from rq.job import Job
-from modules import utils, job_manager, pdf_processor, batch_manager, page_builder
+from modules import utils, job_manager, pdf_processor, batch_manager, page_builder, queue_config
 import sys
 import os
 import pandas as pd
@@ -18,28 +17,17 @@ if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
 
 import worker  # Import worker module for job functions
 
-# Redis connection
-REDIS_HOST = os.environ.get('REDIS_HOST', 'localhost')
-REDIS_PORT = int(os.environ.get('REDIS_PORT', 6379))
-
 @st.cache_resource
 def get_redis_connection():
-    """Get Redis connection with caching."""
+    """Get Redis connection with caching for job status checks."""
     try:
-        redis_conn = Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=False)
+        redis_conn = Redis.from_url(queue_config.REDIS_URL)
         redis_conn.ping()
         return redis_conn
     except Exception as e:
-        st.error(f"⚠️ Cannot connect to Redis at {REDIS_HOST}:{REDIS_PORT}. Make sure Redis is running.")
+        st.error(f"⚠️ Cannot connect to Redis at {queue_config.REDIS_URL}. Make sure Redis is running.")
         st.info("To start Redis locally: `docker run -d -p 6379:6379 redis:7-alpine`")
         return None
-
-def get_queue():
-    """Get RQ queue instance."""
-    redis_conn = get_redis_connection()
-    if redis_conn:
-        return Queue('default', connection=redis_conn)
-    return None
 
 def get_current_selections(existing_selections):
     """Merge current widget values with existing selections from disk, maintaining order.
@@ -242,15 +230,12 @@ def render_job_selector():
                         st.success(f"Job created: {display_name}")
                         
                         # Submit PDF conversion to background queue
-                        queue = get_queue()
-                        if queue:
+                        try:
                             paths = job_manager.get_job_paths(job_id)
-                            rq_job = queue.enqueue(
-                                worker.process_pdf_to_images,
+                            rq_job = queue_config.enqueue_process_pdf(
                                 job_id,
                                 paths['pdf'],
-                                200,
-                                job_timeout='10m'
+                                200
                             )
                             
                             # Store RQ job ID in session state
@@ -268,8 +253,8 @@ def render_job_selector():
                             st.session_state.current_batch = 0
                             st.session_state.last_page_number = 1
                             st.rerun()
-                        else:
-                            st.error("❌ Cannot submit job - Redis not available")
+                        except Exception as e:
+                            st.error(f"❌ Failed to submit job: {e}")
                     else:
                         st.error(result)
                 else:
@@ -365,25 +350,25 @@ def render_batch_interface(job_id, batch_num):
                 st.warning("⚠️ No images found for this job. The conversion may have failed or not started yet.")
                 if st.button("🔄 Start PDF Conversion"):
                     paths = job_manager.get_job_paths(job_id)
-                    queue = get_queue()
-                    if queue and os.path.exists(paths['pdf']):
-                        rq_job = queue.enqueue(
-                            worker.process_pdf_to_images,
-                            job_id,
-                            paths['pdf'],
-                            200,
-                            job_timeout='10m'
-                        )
-                        
-                        if 'pending_jobs' not in st.session_state:
-                            st.session_state.pending_jobs = {}
-                        st.session_state.pending_jobs[job_id] = {
-                            'rq_job_id': rq_job.id,
-                            'type': 'pdf_conversion',
-                            'display_name': display_name
-                        }
-                        st.success("✅ PDF conversion job submitted!")
-                        st.rerun()
+                    if os.path.exists(paths['pdf']):
+                        try:
+                            rq_job = queue_config.enqueue_process_pdf(
+                                job_id,
+                                paths['pdf'],
+                                200
+                                )
+                            
+                            if 'pending_jobs' not in st.session_state:
+                                st.session_state.pending_jobs = {}
+                            st.session_state.pending_jobs[job_id] = {
+                                'rq_job_id': rq_job.id,
+                                'type': 'pdf_conversion',
+                                'display_name': display_name
+                            }
+                            st.success("✅ PDF conversion job submitted!")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Failed to submit job: {e}")
             return
     batches = batch_manager.create_batches(total_images, batch_size=4)
     total_batches = len(batches)
@@ -616,15 +601,12 @@ def render_zip_ordering(job_id):
             st.error(msg)
             st.stop()
 
-        queue = get_queue()
-        if queue:
-            rq_job = queue.enqueue(
-                worker.process_zip_to_images,
+        try:
+            rq_job = queue_config.enqueue_process_zip(
                 job_id,
                 zip_path,
                 ordered_members,
-                200,
-                job_timeout='30m'
+                200
             )
             if 'pending_jobs' not in st.session_state:
                 st.session_state.pending_jobs = {}
@@ -638,6 +620,8 @@ def render_zip_ordering(job_id):
                 del st.session_state[state_key]
             if 'awaiting_zip_order' in st.session_state:
                 del st.session_state['awaiting_zip_order']
+        except Exception as e:
+            st.error(f"❌ Failed to submit job: {e}")
             st.rerun()
         else:
             st.error("❌ Cannot submit job - Redis not available")
@@ -678,14 +662,11 @@ def render_pdf_generator():
                     st.error(error_msg)
                 else:
                     # Submit PDF generation to background queue
-                    queue = get_queue()
-                    if queue:
-                        rq_job = queue.enqueue(
-                            worker.generate_output_pdf,
+                    try:
+                        rq_job = queue_config.enqueue_generate_output_pdf(
                             job_id,
                             current_selections,
-                            paths['output'],
-                            job_timeout='10m'
+                            paths['output']
                         )
                         
                         # Store RQ job ID in session state
@@ -699,8 +680,8 @@ def render_pdf_generator():
                         
                         st.success("✅ PDF regeneration submitted! Processing in background...")
                         st.rerun()
-                    else:
-                        st.error("❌ Cannot submit job - Redis not available")
+                    except Exception as e:
+                        st.error(f"❌ Failed to submit job: {e}")
         
         with col2:
             # Download button
@@ -733,14 +714,11 @@ def render_pdf_generator():
                 st.error(error_msg)
             else:
                 # Submit PDF generation to background queue
-                queue = get_queue()
-                if queue:
-                    rq_job = queue.enqueue(
-                        worker.generate_output_pdf,
+                try:
+                    rq_job = queue_config.enqueue_generate_output_pdf(
                         job_id,
                         current_selections,
-                        paths['output'],
-                        job_timeout='10m'
+                        paths['output']
                     )
                     
                     # Store RQ job ID in session state
@@ -754,8 +732,8 @@ def render_pdf_generator():
                     
                     st.success("✅ PDF generation submitted! Processing in background...")
                     st.rerun()
-                else:
-                    st.error("❌ Cannot submit job - Redis not available")
+                except Exception as e:
+                    st.error(f"❌ Failed to submit job: {e}")
 
 
 
