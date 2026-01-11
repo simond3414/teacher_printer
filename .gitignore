@@ -11,6 +11,7 @@ __pycache__/
 
 # Working directories (don't commit user data)
 printer_inputs/*.pdf
+printer_inputs/*.zip
 printer_processes/
 printer_outputs/
 

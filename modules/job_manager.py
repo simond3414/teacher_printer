@@ -5,6 +5,7 @@ import json
 import shutil
 from datetime import datetime
 from pathlib import Path
+import zipfile
 
 JOBS_BASE_DIR = 'printer_processes'
 
@@ -45,7 +46,8 @@ def create_job(pdf_source, friendly_name=None):
             'job_id': job_id,
             'friendly_name': friendly_label,
             'created_at': datetime.now().isoformat(),
-            'pdf_name': os.path.basename(pdf_source)
+            'pdf_name': os.path.basename(pdf_source),
+            'source_type': 'pdf'
         }
         metadata_path = os.path.join(job_folder, 'metadata.json')
         with open(metadata_path, 'w') as f:
@@ -60,6 +62,74 @@ def create_job(pdf_source, friendly_name=None):
     
     except Exception as e:
         return None, f"Error creating job: {str(e)}"
+
+def create_zip_job(zip_source, friendly_name=None):
+    """Create a new job for a ZIP of PDFs.
+    
+    Copies the ZIP to job folder as original.zip, initializes selections, and records
+    internal PDF member names to metadata for later ordering.
+    
+    Args:
+        zip_source (str): Path to source ZIP file
+        friendly_name (str, optional): User-friendly job name
+    
+    Returns:
+        tuple: (job_id, job_folder) or (None, error_message)
+    """
+    try:
+        job_id = get_job_id()
+        friendly_label = friendly_name.strip() if friendly_name and friendly_name.strip() else None
+
+        job_folder = os.path.join(JOBS_BASE_DIR, job_id)
+        images_folder = os.path.join(job_folder, 'images')
+        thumbnails_folder = os.path.join(job_folder, 'thumbnails')
+        sources_folder = os.path.join(job_folder, 'sources')
+
+        os.makedirs(images_folder, exist_ok=True)
+        os.makedirs(thumbnails_folder, exist_ok=True)
+        os.makedirs(sources_folder, exist_ok=True)
+
+        # Copy ZIP to job folder
+        dest_zip = os.path.join(job_folder, 'original.zip')
+        shutil.copy2(zip_source, dest_zip)
+
+        # Create empty selections file
+        selections_path = os.path.join(job_folder, 'selections.json')
+        with open(selections_path, 'w') as f:
+            json.dump({}, f)
+
+        # List contained PDFs
+        pdf_members = []
+        with zipfile.ZipFile(dest_zip, 'r') as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                name = info.filename
+                if name.lower().endswith('.pdf'):
+                    pdf_members.append(name)
+
+        metadata = {
+            'job_id': job_id,
+            'friendly_name': friendly_label,
+            'created_at': datetime.now().isoformat(),
+            'zip_name': os.path.basename(zip_source),
+            'source_type': 'zip',
+            'zip_members': pdf_members,
+            'pdf_order': None
+        }
+        metadata_path = os.path.join(job_folder, 'metadata.json')
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+
+        # Debug log
+        timestamp = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        job_display = friendly_label if friendly_label else job_id
+        print(f"[{timestamp}] NEW ZIP JOB CREATED: {job_display} (ID: {job_id}) with {len(pdf_members)} PDFs")
+
+        return job_id, job_folder
+
+    except Exception as e:
+        return None, f"Error creating ZIP job: {str(e)}"
 
 def get_job_id():
     """Generate timestamp-based unique job ID.
@@ -113,6 +183,7 @@ def get_job_info(job_id):
         return None
     
     pdf_path = os.path.join(job_folder, 'original.pdf')
+    zip_path = os.path.join(job_folder, 'original.zip')
     images_folder = os.path.join(job_folder, 'images')
     selections_path = os.path.join(job_folder, 'selections.json')
     metadata = _load_metadata(job_folder)
@@ -147,7 +218,7 @@ def get_job_info(job_id):
     # Get DPI from metadata if available
     dpi = metadata.get('dpi', None)
     
-    return {
+    info = {
         'job_id': job_id,
         'pdf_name': 'original.pdf',
         'pdf_exists': os.path.exists(pdf_path),
@@ -158,6 +229,11 @@ def get_job_info(job_id):
         'friendly_name': friendly_name,
         'dpi': dpi
     }
+    # Augment for ZIP jobs
+    if os.path.exists(zip_path):
+        info['zip_exists'] = True
+        info['zip_name'] = os.path.basename(zip_path)
+    return info
 
 def delete_job(job_id):
     """Remove job folder from inputs, processes, and outputs.
@@ -233,8 +309,26 @@ def get_job_paths(job_id):
     return {
         'job_folder': os.path.join(JOBS_BASE_DIR, job_id),
         'pdf': os.path.join(JOBS_BASE_DIR, job_id, 'original.pdf'),
+        'zip': os.path.join(JOBS_BASE_DIR, job_id, 'original.zip'),
+        'sources': os.path.join(JOBS_BASE_DIR, job_id, 'sources'),
         'selections': os.path.join(JOBS_BASE_DIR, job_id, 'selections.json'),
         'images': os.path.join(JOBS_BASE_DIR, job_id, 'images'),
         'thumbnails': os.path.join(JOBS_BASE_DIR, job_id, 'thumbnails'),
         'output': os.path.join('printer_outputs', f"{job_id}.pdf")
     }
+
+def save_pdf_order(job_id, ordered_members):
+    """Persist the chosen PDF order into metadata.json."""
+    job_folder = os.path.join(JOBS_BASE_DIR, job_id)
+    metadata_path = os.path.join(job_folder, 'metadata.json')
+    if not os.path.exists(metadata_path):
+        return False, "Job metadata not found"
+    try:
+        with open(metadata_path, 'r') as f:
+            meta = json.load(f)
+        meta['pdf_order'] = ordered_members
+        with open(metadata_path, 'w') as f:
+            json.dump(meta, f, indent=2)
+        return True, "Order saved"
+    except Exception as e:
+        return False, f"Error saving order: {str(e)}"

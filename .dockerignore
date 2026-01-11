@@ -19,6 +19,7 @@ __pycache__/
 
 # Working directories (mounted as volumes, not needed in image)
 printer_inputs/
+printer_inputs/*.zip
 printer_processes/
 printer_outputs/
 

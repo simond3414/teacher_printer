@@ -7,7 +7,7 @@ import os
 import gc
 from datetime import datetime
 from rq import get_current_job
-from modules import pdf_processor, page_builder, job_manager
+from modules import pdf_processor, page_builder, job_manager, utils
 
 
 def process_pdf_to_images(job_id, pdf_path, dpi=200):
@@ -159,6 +159,101 @@ def generate_output_pdf(job_id, selections_dict, output_path):
             'output_path': output_path
         }
 
+
+def process_zip_to_images(job_id, zip_path, ordered_members, dpi=200):
+    """
+    Background task: Extract PDFs from ZIP in the chosen order and convert
+    all pages to a single continuous image sequence.
+    """
+    rq_job = get_current_job()
+
+    try:
+        # Init progress
+        if rq_job:
+            rq_job.meta['progress'] = 0
+            rq_job.meta['status'] = 'Extracting and converting PDFs...'
+            rq_job.save_meta()
+
+        timestamp = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        metadata = job_manager._load_metadata(os.path.join(job_manager.JOBS_BASE_DIR, job_id))
+        job_display = metadata.get('friendly_name') or job_id
+        print(f"[{timestamp}] WORKER: ZIP conversion started for {job_display} ({len(ordered_members)} PDFs)")
+
+        paths = job_manager.get_job_paths(job_id)
+        sources_dir = paths['sources']
+
+        # Extract selected PDFs in order (streaming)
+        utils.safe_extract_selected(zip_path, sources_dir, ordered_members)
+
+        # Convert one-by-one with continuous numbering
+        start_index = 1
+        total = len(ordered_members)
+
+        for idx, member in enumerate(ordered_members, start=1):
+            pdf_path = os.path.join(sources_dir, member)
+            if not os.path.exists(pdf_path):
+                continue
+
+            if rq_job:
+                rq_job.meta['status'] = f'Converting {idx}/{total}: {os.path.basename(member)}'
+                rq_job.meta['progress'] = int((idx - 1) / total * 100)
+                rq_job.save_meta()
+
+            use_dpi = None if dpi is None or dpi == 0 else dpi
+            success, msg, count, used_dpi = pdf_processor.convert_pdf_to_images(pdf_path, job_id, use_dpi, start_index=start_index)
+            if not success:
+                raise RuntimeError(msg)
+            start_index += count
+
+        if rq_job:
+            rq_job.meta['progress'] = 100
+            rq_job.meta['status'] = 'Complete'
+            if dpi:
+                rq_job.meta['dpi'] = dpi
+            rq_job.save_meta()
+
+        # Persist DPI to metadata if provided
+        if dpi:
+            job_folder = os.path.join(job_manager.JOBS_BASE_DIR, job_id)
+            metadata_path = os.path.join(job_folder, 'metadata.json')
+            if os.path.exists(metadata_path):
+                try:
+                    with open(metadata_path, 'r') as f:
+                        meta = job_manager.json.load(f)
+                    meta['dpi'] = dpi
+                    with open(metadata_path, 'w') as f:
+                        job_manager.json.dump(meta, f, indent=2)
+                except Exception as e:
+                    print(f"Warning: Could not save DPI to metadata: {e}")
+
+        timestamp = datetime.now().strftime('%d/%m/%Y %H:%M:%S')
+        print(f"[{timestamp}] WORKER: ZIP conversion completed for {job_display} - {start_index-1} images")
+
+        gc.collect()
+        return {
+            'success': True,
+            'message': 'ZIP conversion complete',
+            'image_count': start_index - 1,
+            'job_id': job_id,
+            'dpi': dpi
+        }
+
+    except Exception as e:
+        error_msg = f"Error in ZIP conversion: {str(e)}"
+        print(f"[ERROR] WORKER: {error_msg}")
+
+        if rq_job:
+            rq_job.meta['progress'] = 100
+            rq_job.meta['status'] = f'Error: {str(e)}'
+            rq_job.save_meta()
+
+        return {
+            'success': False,
+            'message': error_msg,
+            'image_count': 0,
+            'job_id': job_id,
+            'dpi': None
+        }
 
 # Note: RQ worker will automatically discover functions in this module
 # Run with: rq worker --with-scheduler

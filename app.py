@@ -9,6 +9,8 @@ from rq.job import Job
 from modules import utils, job_manager, pdf_processor, batch_manager, page_builder
 import sys
 import os
+import pandas as pd
+from st_aggrid import AgGrid, GridOptionsBuilder, DataReturnMode
 
 # Add current directory to path for worker import
 if os.path.dirname(os.path.abspath(__file__)) not in sys.path:
@@ -175,22 +177,38 @@ def render_job_selector():
         
         # Option 1: Upload PDF
         st.write("**Option 1: Upload a new PDF**")
-        uploaded_file = st.file_uploader("Upload PDF", type=['pdf'])
+        uploaded_file = st.file_uploader("Upload PDF", type=['pdf'], key="upload_single_pdf")
+        st.divider()
         
-        # Option 2: Select from printer_inputs folder
+        # Option 2: Select from printer_inputs folder (PDF)
         printer_inputs_dir = 'printer_inputs'
         local_pdfs = []
+        local_zips = []
         if os.path.exists(printer_inputs_dir):
-            local_pdfs = [f for f in os.listdir(printer_inputs_dir) if f.endswith('.pdf')]
+            local_pdfs = [f for f in os.listdir(printer_inputs_dir) if f.lower().endswith('.pdf')]
+            local_zips = [f for f in os.listdir(printer_inputs_dir) if f.lower().endswith('.zip')]
         
+        selected_pdf = None
         if local_pdfs:
-            st.write("**Option 2: Select from existing PDFs**")
-            selected_pdf = st.selectbox("PDFs in printer_inputs folder", [''] + local_pdfs)
-        else:
-            selected_pdf = None
+            st.write("**Option 2: Select existing PDF**")
+            selected_pdf = st.selectbox("PDFs in printer_inputs folder", [''] + local_pdfs, key="select_single_pdf")
+
+        st.divider()
+        # Option 3: Upload ZIP of PDFs
+        st.write("**Option 3: Upload a ZIP containing PDFs**")
+        uploaded_zip = st.file_uploader("Upload ZIP", type=['zip'], key="upload_zip")
+        st.divider()
+
+        # Option 4: Select ZIP from folder
+        selected_zip = None
+        if local_zips:
+            st.write("**Option 4: Select existing ZIP**")
+            selected_zip = st.selectbox("ZIPs in printer_inputs", [''] + local_zips, key="select_zip")
+        st.divider()
         
         if st.button("Start New Job"):
             pdf_source = None
+            zip_source = None
             
             # Check for duplicate friendly name
             if job_name.strip():
@@ -199,14 +217,19 @@ def render_job_selector():
                     st.stop()
             
             if uploaded_file:
-                # Save uploaded file temporarily in printer_inputs
+                # Save uploaded file temporarily in printer_inputs (chunked)
                 temp_path = os.path.join('printer_inputs', f"temp_{uploaded_file.name}")
-                with open(temp_path, 'wb') as f:
-                    f.write(uploaded_file.read())
+                utils.write_uploaded_file_chunked(uploaded_file, temp_path)
                 pdf_source = temp_path
             elif selected_pdf:
                 # Use PDF from printer_inputs folder
                 pdf_source = os.path.join('printer_inputs', selected_pdf)
+            elif uploaded_zip:
+                temp_path = os.path.join('printer_inputs', f"temp_{uploaded_zip.name}")
+                utils.write_uploaded_file_chunked(uploaded_zip, temp_path)
+                zip_source = temp_path
+            elif selected_zip:
+                zip_source = os.path.join('printer_inputs', selected_zip)
             
             if pdf_source:
                 # Validate PDF
@@ -251,8 +274,25 @@ def render_job_selector():
                         st.error(result)
                 else:
                     st.error(message)
+            elif zip_source:
+                # ZIP flow (multi-PDF)
+                is_valid, message = utils.validate_zip(zip_source)
+                if not is_valid:
+                    st.error(message)
+                    st.stop()
+                job_id, result = job_manager.create_zip_job(zip_source, friendly_name=job_name)
+                if job_id:
+                    display_name = job_name.strip() if job_name and job_name.strip() else job_id
+                    st.success(f"ZIP job created: {display_name}")
+                    # Navigate to ordering step
+                    st.session_state.current_job_id = job_id
+                    st.session_state.current_batch = 0
+                    st.session_state['awaiting_zip_order'] = True
+                    st.rerun()
+                else:
+                    st.error(result)
             else:
-                st.warning("Please upload or select a PDF")
+                st.warning("Please upload or select a PDF or ZIP")
     
     else:
         st.subheader("Continue Existing Job")
@@ -307,6 +347,8 @@ def render_batch_interface(job_id, batch_num):
     
     # Get batch info - use mini-batches of 4 images
     total_images = pdf_processor.get_image_count(job_id)
+    paths = job_manager.get_job_paths(job_id)
+    is_zip_job = os.path.exists(paths.get('zip', ''))
     
     # Check if images are still being processed
     if total_images == 0:
@@ -316,28 +358,32 @@ def render_batch_interface(job_id, batch_num):
             st.caption("Check the sidebar for job status. The page will update automatically when complete.")
             return
         else:
-            st.warning("⚠️ No images found for this job. The conversion may have failed or not started yet.")
-            if st.button("🔄 Start PDF Conversion"):
-                paths = job_manager.get_job_paths(job_id)
-                queue = get_queue()
-                if queue and os.path.exists(paths['pdf']):
-                    rq_job = queue.enqueue(
-                        worker.process_pdf_to_images,
-                        job_id,
-                        paths['pdf'],
-                        200,
-                        job_timeout='10m'
-                    )
-                    
-                    if 'pending_jobs' not in st.session_state:
-                        st.session_state.pending_jobs = {}
-                    st.session_state.pending_jobs[job_id] = {
-                        'rq_job_id': rq_job.id,
-                        'type': 'pdf_conversion',
-                        'display_name': display_name
-                    }
-                    st.success("✅ PDF conversion job submitted!")
-                    st.rerun()
+            if is_zip_job:
+                render_zip_ordering(job_id)
+                return
+            else:
+                st.warning("⚠️ No images found for this job. The conversion may have failed or not started yet.")
+                if st.button("🔄 Start PDF Conversion"):
+                    paths = job_manager.get_job_paths(job_id)
+                    queue = get_queue()
+                    if queue and os.path.exists(paths['pdf']):
+                        rq_job = queue.enqueue(
+                            worker.process_pdf_to_images,
+                            job_id,
+                            paths['pdf'],
+                            200,
+                            job_timeout='10m'
+                        )
+                        
+                        if 'pending_jobs' not in st.session_state:
+                            st.session_state.pending_jobs = {}
+                        st.session_state.pending_jobs[job_id] = {
+                            'rq_job_id': rq_job.id,
+                            'type': 'pdf_conversion',
+                            'display_name': display_name
+                        }
+                        st.success("✅ PDF conversion job submitted!")
+                        st.rerun()
             return
     batches = batch_manager.create_batches(total_images, batch_size=4)
     total_batches = len(batches)
@@ -420,10 +466,9 @@ def render_batch_interface(job_id, batch_num):
             img_num = image_numbers[idx]
             img_key = f"img_{img_num:03d}"
             
-            # Display thumbnail
+            # Display thumbnail directly from path to avoid transient media IDs
             try:
-                thumb_img = Image.open(thumbnails[idx])
-                st.image(thumb_img, caption=f"Image {img_num}", width="stretch")
+                st.image(thumbnails[idx], caption=f"Image {img_num}", width='stretch')
             except Exception as e:
                 st.error(f"Error loading image {img_num}: {str(e)}")
             
@@ -473,6 +518,130 @@ def render_batch_interface(job_id, batch_num):
         else:
             st.error(msg)
 
+def render_zip_ordering(job_id):
+    """UI to reorder PDFs inside a ZIP before starting conversion."""
+    st.subheader("ZIP: Set PDF Order")
+    paths = job_manager.get_job_paths(job_id)
+    zip_path = paths.get('zip')
+
+    if not zip_path or not os.path.exists(zip_path):
+        st.error("ZIP file not found for this job.")
+        return
+
+    metadata = job_manager._load_metadata(paths['job_folder'])
+    pdf_members = metadata.get('zip_members', [])
+    if not pdf_members:
+        st.warning("No PDFs found in ZIP.")
+        return
+
+    # Dataframe for ordering
+    state_key = f'zip_order_df_{job_id}'
+    if state_key not in st.session_state:
+        df = pd.DataFrame({
+            'order': list(range(1, len(pdf_members) + 1)),
+            'member': pdf_members,
+            'filename': [os.path.basename(m) for m in pdf_members],
+        })
+        st.session_state[state_key] = df
+    df = st.session_state[state_key]
+
+    st.caption("Drag rows to reorder. Use sort buttons if helpful, then press Start when ready.")
+
+    with st.form(f"zip_order_form_{job_id}"):
+        # Build AgGrid with drag-and-drop reordering
+        gb = GridOptionsBuilder.from_dataframe(df)
+        gb.configure_default_column(editable=False, sortable=False, filter=True, resizable=True)
+        gb.configure_grid_options(rowDragManaged=True, animateRows=True)
+        gb.configure_column("filename", header_name="PDF (filename)", rowDrag=True)
+        gb.configure_column("member", header_name="ZIP Path")
+        gb.configure_column("order", hide=True)  # rely on row order
+        grid_options = gb.build()
+
+        grid_resp = AgGrid(
+            df,
+            gridOptions=grid_options,
+            height=min(600, max(300, 34 * (len(df) + 1))),
+            fit_columns_on_grid_load=True,
+            data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
+            update_on=["rowDragEnd"],
+            theme="streamlit",
+        )
+
+        # Persist row order to session on any drag-end-triggered rerun
+        try:
+            if "data" in grid_resp and grid_resp["data"] is not None:
+                cur_df = pd.DataFrame(grid_resp["data"]) if isinstance(grid_resp["data"], list) else grid_resp["data"]
+                if not cur_df.empty:
+                    st.session_state[state_key] = cur_df.reset_index(drop=True)
+                    df = st.session_state[state_key]
+        except Exception:
+            pass
+
+        c1, c2, c3 = st.columns(3)
+        sort_az = c1.form_submit_button("Sort by filename (A→Z)")
+        sort_rev = c2.form_submit_button("Reverse current order")
+        start_conv = c3.form_submit_button("Start Conversion with This Order", type="primary")
+
+    # Handle form submissions
+    if sort_az:
+        # sort by filename, keep stable
+        try:
+            cur_df = pd.DataFrame(grid_resp["data"]) if ("data" in grid_resp and grid_resp["data"] is not None) else st.session_state[state_key]
+        except Exception:
+            cur_df = st.session_state[state_key]
+        cur_df = cur_df.sort_values(by=["filename"], kind="stable").reset_index(drop=True)
+        st.session_state[state_key] = cur_df
+        st.rerun()
+
+    if sort_rev:
+        try:
+            cur_df = pd.DataFrame(grid_resp["data"]) if ("data" in grid_resp and grid_resp["data"] is not None) else st.session_state[state_key]
+        except Exception:
+            cur_df = st.session_state[state_key]
+        cur_df = cur_df.iloc[::-1].reset_index(drop=True)
+        st.session_state[state_key] = cur_df
+        st.rerun()
+
+    if start_conv:
+        # Use the session-persisted order as the source of truth
+        final_df = st.session_state[state_key]
+
+        ordered_members = final_df['member'].tolist()
+        if set(ordered_members) != set(pdf_members) or len(ordered_members) != len(pdf_members):
+            st.error("Order list is invalid. Please ensure all files are present exactly once.")
+            st.stop()
+
+        ok, msg = job_manager.save_pdf_order(job_id, ordered_members)
+        if not ok:
+            st.error(msg)
+            st.stop()
+
+        queue = get_queue()
+        if queue:
+            rq_job = queue.enqueue(
+                worker.process_zip_to_images,
+                job_id,
+                zip_path,
+                ordered_members,
+                200,
+                job_timeout='30m'
+            )
+            if 'pending_jobs' not in st.session_state:
+                st.session_state.pending_jobs = {}
+            st.session_state.pending_jobs[job_id] = {
+                'rq_job_id': rq_job.id,
+                'type': 'zip_conversion',
+                'display_name': job_manager.get_job_info(job_id).get('friendly_name') or job_id
+            }
+            st.success("✅ ZIP conversion job submitted! Processing in background...")
+            if state_key in st.session_state:
+                del st.session_state[state_key]
+            if 'awaiting_zip_order' in st.session_state:
+                del st.session_state['awaiting_zip_order']
+            st.rerun()
+        else:
+            st.error("❌ Cannot submit job - Redis not available")
+
 def render_pdf_generator():
     """Button to generate output PDF."""
     st.divider()
@@ -494,7 +663,7 @@ def render_pdf_generator():
         col1, col2 = st.columns(2)
         
         with col1:
-            if st.button("🔄 Regenerate PDF", type="secondary", use_container_width=True):
+            if st.button("🔄 Regenerate PDF", type="secondary", width='stretch'):
                 # Auto-save current selections before generating
                 existing_selections = batch_manager.load_selections(job_id)
                 current_selections = get_current_selections(existing_selections)
@@ -544,7 +713,7 @@ def render_pdf_generator():
                     file_name=filename,
                     mime="application/pdf",
                     type="primary",
-                    use_container_width=True
+                    width='stretch'
                 )
     
     else:
@@ -601,7 +770,7 @@ def render_job_manager():
             st.subheader("🔄 Background Jobs")
             
             # Manual refresh button
-            if st.button("🔄 Refresh Job Status", use_container_width=True):
+            if st.button("🔄 Refresh Job Status", width='stretch'):
                 st.rerun()
             
             redis_conn = get_redis_connection()
@@ -617,9 +786,8 @@ def render_job_manager():
                         if status == 'finished':
                             st.success(f"✅ {job_info['display_name']} - {job_info['type']} complete!")
                             completed_jobs.append(job_key)
-                            
                             # Button to view completed job
-                            if job_info['type'] == 'pdf_conversion':
+                            if job_info['type'] in ['pdf_conversion', 'zip_conversion']:
                                 if st.button(f"View {job_info['display_name']}", key=f"view_{job_key}"):
                                     st.rerun()
                         
@@ -656,7 +824,7 @@ def render_job_manager():
         if jobs:
             with st.expander("Existing Jobs", expanded=False):
                 # Delete all button
-                if st.button("🗑️ Delete All Jobs", type="secondary", use_container_width=True):
+                if st.button("🗑️ Delete All Jobs", type="secondary", width='stretch'):
                     success, msg = job_manager.delete_all_jobs()
                     if success:
                         # Clear current job if it was deleted

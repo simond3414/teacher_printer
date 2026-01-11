@@ -34,7 +34,7 @@ def get_adaptive_dpi(pdf_path):
         print(f"Warning: Could not determine file size, using default DPI: {e}")
         return 150  # Safe default
 
-def convert_pdf_to_images(pdf_path, job_id, dpi=None):
+def convert_pdf_to_images(pdf_path, job_id, dpi=None, start_index=1):
     """Convert PDF to high-resolution images using page-by-page processing.
     
     Args:
@@ -43,7 +43,7 @@ def convert_pdf_to_images(pdf_path, job_id, dpi=None):
         dpi (int, optional): Resolution for conversion. If None, auto-calculated based on file size.
     
     Returns:
-        tuple: (success, message, image_count)
+        tuple: (success, message, image_count, used_dpi)
     """
     try:
         job_folder = os.path.join(JOBS_BASE_DIR, job_id)
@@ -73,14 +73,15 @@ def convert_pdf_to_images(pdf_path, job_id, dpi=None):
             )
             
             page = pages[0]
-            
-            # Save full-resolution image
-            img_filename = f"img_{page_num:03d}.jpg"
+
+            # Continuous numbering support using start_index
+            img_index = start_index + page_num - 1
+            img_filename = f"img_{img_index:03d}.jpg"
             img_path = os.path.join(images_folder, img_filename)
             page.save(img_path, 'JPEG', quality=85)
             
             # Generate and save thumbnail
-            thumb_path = os.path.join(thumbnails_folder, f"thumb_{page_num:03d}.jpg")
+            thumb_path = os.path.join(thumbnails_folder, f"thumb_{img_index:03d}.jpg")
             generate_thumbnail(img_path, thumb_path, max_size=800)
             
             # CRITICAL: Explicit memory cleanup after each page
