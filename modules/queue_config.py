@@ -8,8 +8,7 @@ other applications sharing the same Redis instance.
 
 import os
 from redis import Redis
-from rq import Queue
-from rq.retry import Retry
+from rq import Queue, Retry
 
 
 # Environment configuration
