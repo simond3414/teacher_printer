@@ -701,8 +701,6 @@ def render_zip_ordering(job_id):
         except Exception as e:
             st.error(f"❌ Failed to submit job: {e}")
             st.rerun()
-        else:
-            st.error("❌ Cannot submit job - Redis not available")
 
 def render_pdf_generator():
     """Button to generate output PDF."""
