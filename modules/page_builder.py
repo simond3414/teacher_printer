@@ -1,4 +1,9 @@
 # Purpose: generate output PDF with flexible layouts.
+# 
+# IMPORTANT: Output PDFs are typically 2-3x the size of the original PDF.
+# This is due to ReportLab's image embedding overhead when creating custom layouts.
+# The trade-off is worth it for the ability to arrange multiple images per page
+# with custom rotations and layouts.
 
 import os
 from PIL import Image
@@ -64,6 +69,10 @@ def build_output_pdf(job_id, selections_dict, output_path):
             c.showPage()  # Next page
         
         c.save()
+        
+        # Get final file size for logging
+        final_size = os.path.getsize(output_path)
+        print(f"PDF size: {final_size / 1024 / 1024:.1f}MB")
         
         # Debug: Log PDF generation completion
         timestamp = datetime.now().strftime('%d/%m/%Y %H:%M:%S')

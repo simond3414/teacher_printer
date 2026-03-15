@@ -36,6 +36,8 @@ Uses **Redis Queue for background processing** with three containerized services
 
 ### 🖼️ Image Processing
 - **Selective Exclusion**: Exclude specific images from the final PDF
+- **Image Rotation**: Rotate mis-scanned pages 90° at a time (clockwise ↻ or counter-clockwise ↺)
+- **Visual Preview**: Thumbnails display rotated orientation in real-time
 - **Auto-Increment Page Numbers**: Smart page numbering with automatic increment as you work
 - **Page Distribution**: Real-time sidebar showing how many images are assigned to each page
 - **Validation**: Prevents generation if any page exceeds 9 images
@@ -47,6 +49,7 @@ Uses **Redis Queue for background processing** with three containerized services
   - 3-4 images: 2×2 grid
   - 5-6 images: 3×2 grid
   - 7-9 images: 3×3 grid
+- **File Size Note**: Output PDFs are typically 2-3x the size of the original PDF. This is due to ReportLab's image embedding overhead when creating custom layouts with multiple images per page.
 - **Download Management**: Download generated PDFs with friendly names
 - **Regeneration**: Easily regenerate PDFs after making changes
 - **Validation Warnings**: Alert when jobs are incomplete or pages are overloaded
@@ -121,11 +124,17 @@ See [SETUP_REDIS.md](SETUP_REDIS.md) for local development setup with Redis.
    - First image defaults to 1, subsequent images auto-increment
    - Modify any number as needed
 
-3. **Exclude Images**
+3. **Rotate Images** (if needed)
+   - Click **↻** to rotate 90° clockwise
+   - Click **↺** to rotate 90° counter-clockwise
+   - Rotation is saved automatically and shown in the thumbnail preview
+   - Useful for correcting mis-scanned pages
+
+4. **Exclude Images**
    - Check the "Exclude" box to skip an image
    - Excluded images won't appear in the final PDF
 
-4. **Monitor Progress**
+5. **Monitor Progress**
    - Sidebar shows page distribution in real-time
    - Warnings appear for pages with >9 images
    - Overall job progress displayed as percentage
@@ -213,7 +222,8 @@ teacworker.py                   # Background job processor (RQ worker)
 
 ### Data Persistence
 - **metadata.json**: Job information (name, creation date, source PDF, DPI used)
-- **selections.json**: Image-to-page number mappings
+- **selections.json**: Image-to-page mappings with rotation data (`{"img_001": {"page": 1, "rotation": 90}}`)
+- **Backward Compatible**: Old format without rotation still loads correctly
 - **Auto-save**: Triggered on batch navigation and PDF generation
 
 ### Image Processing
@@ -238,7 +248,8 @@ teacworker.py                   # Background job processor (RQ worker)
 5. **Validation**: Review the page distribution sidebar before generating
 6. **Auto-increment**: Let the first image set the page, others follow automatically
 7. **Exclusion**: Use page 0 (exclude) for cover pages or unwanted content
-8. **Regeneration**: Safe to regenerate PDFs multiple times - old versions are replaced
+8. **Rotation**: Fix mis-scanned pages by rotating before assigning to output pages
+9. **Regeneration**: Safe to regenerate PDFs multiple times - old versions are replaced
 
 ## Troubleshooting
 
@@ -304,5 +315,5 @@ Built with:
 ---
 
 **Author**: Simon  
-**Version**: 1.2
-**Last Updated**: December 2025
+**Version**: 1.3  
+**Last Updated**: March 2026

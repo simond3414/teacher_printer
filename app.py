@@ -420,7 +420,15 @@ def render_batch_interface(job_id, batch_num):
     if 'last_page_number' not in st.session_state:
         # Start with 1, but if there are existing selections, use the max page number
         if all_selections:
-            valid_pages = [p for p in all_selections.values() if p > 0]
+            # Handle both old format (int) and new format (dict with 'page' key)
+            valid_pages = []
+            for v in all_selections.values():
+                if isinstance(v, dict):
+                    page_num = v.get('page', 0)
+                else:
+                    page_num = v if v is not None else 0
+                if page_num > 0:
+                    valid_pages.append(page_num)
             st.session_state.last_page_number = max(valid_pages) if valid_pages else 1
         else:
             st.session_state.last_page_number = 1
