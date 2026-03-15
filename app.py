@@ -33,20 +33,35 @@ def get_current_selections(existing_selections):
     """Merge current widget values with existing selections from disk, maintaining order.
 
     Handles three cases per image key:
-    - Excluded via checkbox: saved as 0
+    - Excluded via checkbox: saved as page 0
     - Assigned to a page: saved as that page number (>0)
     - Not yet processed in UI: no entry created
+    
+    Returns selections in new format: {img_key: {'page': N, 'rotation': D}}
     """
     merged = {}
 
     # 1) Start with what's already saved, letting current widget states override
     for img_key, saved_value in existing_selections.items():
+        # Get current rotation and page
+        rotation = 0
+        page = 1
+        
+        if isinstance(saved_value, dict):
+            page = saved_value.get('page', 1)
+            rotation = saved_value.get('rotation', 0)
+        else:
+            page = saved_value if saved_value is not None else 1
+        
         exclude_key = f"exclude_{img_key}"
         if st.session_state.get(exclude_key, False):
-            merged[img_key] = 0
+            merged[img_key] = {'page': 0, 'rotation': rotation}
         else:
             widget_key = f"page_{img_key}"
-            merged[img_key] = st.session_state.get(widget_key, saved_value)
+            merged[img_key] = {
+                'page': st.session_state.get(widget_key, page),
+                'rotation': rotation
+            }
 
     # 2) Collect new images seen only in the current UI state
     page_keys = []
@@ -74,14 +89,29 @@ def get_current_selections(existing_selections):
     for img_key in sort_img_keys(page_keys):
         widget_key = f"page_{img_key}"
         exclude_key = f"exclude_{img_key}"
+        
+        # Get any existing rotation from session state or default to 0
+        rotation = 0
+        if img_key in existing_selections:
+            if isinstance(existing_selections[img_key], dict):
+                rotation = existing_selections[img_key].get('rotation', 0)
+        
         if st.session_state.get(exclude_key, False):
-            merged[img_key] = 0
+            merged[img_key] = {'page': 0, 'rotation': rotation}
         else:
-            merged[img_key] = st.session_state.get(widget_key, 1)
+            merged[img_key] = {
+                'page': st.session_state.get(widget_key, 1),
+                'rotation': rotation
+            }
 
     # 5) Add exclude-only images as excluded
     for img_key in sort_img_keys(exclude_only_keys):
-        merged[img_key] = 0
+        # Get any existing rotation or default to 0
+        rotation = 0
+        if img_key in existing_selections:
+            if isinstance(existing_selections[img_key], dict):
+                rotation = existing_selections[img_key].get('rotation', 0)
+        merged[img_key] = {'page': 0, 'rotation': rotation}
 
     return merged
 
@@ -89,13 +119,19 @@ def get_page_counts(selections_dict):
     """Count images per page number.
     
     Args:
-        selections_dict (dict): Image to page mappings
+        selections_dict (dict): Image to page mappings (supports old and new format)
     
     Returns:
         dict: {page_num: image_count} sorted by page number (excludes page 0)
     """
     page_counts = {}
-    for img_key, page_num in selections_dict.items():
+    for img_key, value in selections_dict.items():
+        # Handle both old format (int) and new format (dict)
+        if isinstance(value, dict):
+            page_num = value.get('page', 1)
+        else:
+            page_num = value if value is not None else 1
+        
         if page_num == 0:  # Skip excluded images
             continue
         if page_num not in page_counts:
@@ -451,22 +487,56 @@ def render_batch_interface(job_id, batch_num):
             img_num = image_numbers[idx]
             img_key = f"img_{img_num:03d}"
             
+            # Get current rotation for this image
+            current_rotation = batch_manager.get_rotation(all_selections, img_key)
+            
             # Display thumbnail directly from path to avoid transient media IDs
             try:
-                st.image(thumbnails[idx], caption=f"Image {img_num}", width='stretch')
+                thumb_path = thumbnails[idx]
+                thumb_img = Image.open(thumb_path)
+                
+                # Apply rotation to thumbnail display
+                if current_rotation != 0:
+                    thumb_img = thumb_img.rotate(-current_rotation, expand=True)
+                
+                st.image(thumb_img, caption=f"Image {img_num}", width='stretch')
+                thumb_img.close()
             except Exception as e:
                 st.error(f"Error loading image {img_num}: {str(e)}")
+            
+            # Rotation controls
+            rot_col1, rot_col2, rot_col3 = st.columns([1, 1, 2])
+            with rot_col1:
+                if st.button("↻", key=f"rotate_cw_{img_key}", help="Rotate 90° clockwise"):
+                    new_rotation = (current_rotation + 90) % 360
+                    all_selections = batch_manager.set_rotation(all_selections, img_key, new_rotation)
+                    batch_manager.save_selections(job_id, all_selections)
+                    st.rerun()
+            
+            with rot_col2:
+                if st.button("↺", key=f"rotate_ccw_{img_key}", help="Rotate 90° counter-clockwise"):
+                    new_rotation = (current_rotation - 90) % 360
+                    all_selections = batch_manager.set_rotation(all_selections, img_key, new_rotation)
+                    batch_manager.save_selections(job_id, all_selections)
+                    st.rerun()
+            
+            with rot_col3:
+                if current_rotation != 0:
+                    st.caption(f"{current_rotation}°")
+            
+            # Get current page number
+            current_page = batch_manager.get_page_number(all_selections, img_key)
             
             # Page number input with auto-increment from session state
             if img_key in all_selections:
                 # Use saved value
-                default_value = all_selections[img_key]
+                default_value = current_page
             else:
                 # Use last page number from session state
                 default_value = st.session_state.last_page_number
             
             # Check if currently excluded (page 0)
-            is_excluded = all_selections.get(img_key, default_value) == 0
+            is_excluded = current_page == 0
             
             # Exclude checkbox
             exclude = st.checkbox(
@@ -476,8 +546,8 @@ def render_batch_interface(job_id, batch_num):
             )
             
             if exclude:
-                # If excluded, set page to 0
-                all_selections[img_key] = 0
+                # If excluded, set page to 0 (keep rotation for if they un-exclude)
+                all_selections[img_key] = {'page': 0, 'rotation': current_rotation}
                 st.caption("Excluded from PDF")
             else:
                 # Show page number input if not excluded
@@ -488,8 +558,8 @@ def render_batch_interface(job_id, batch_num):
                     key=f"page_{img_key}"
                 )
                 
-                # Update selections and session state
-                all_selections[img_key] = page_num
+                # Update selections with new format
+                all_selections[img_key] = {'page': page_num, 'rotation': current_rotation}
                 st.session_state.last_page_number = page_num
     
     # Save button

@@ -62,7 +62,7 @@ docker-compose restart teacher-printer-web
 ### Worker (teacher-printer-worker)
 - **Memory**: 1.5GB limit (handles heavy processing)
 - **Purpose**: Background PDF conversion and generation
-- **Command**: `rq worker --url redis://redis:6379 default`
+- **Command**: `rq worker --url redis://redis:6379 teacher_printer`
 - **Depends on**: Redis must be healthy before starting
 
 ## Directory Bindings
@@ -99,7 +99,7 @@ All data persists on your host machine even when containers are stopped or remov
 ### Check Job Queue Status
 ```bash
 # Number of jobs in queue
-docker exec teacher-printer-redis redis-cli LLEN rq:queue:default
+docker exec teacher-printer-redis redis-cli LLEN rq:queue:teacher_printer
 
 # See all Redis keys
 docker exec teacher-printer-redis redis-cli KEYS '*'

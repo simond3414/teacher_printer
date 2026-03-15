@@ -45,7 +45,7 @@ services:
   teacher-printer-worker:
     build: .
     container_name: teacher-printer-worker
-    command: rq worker --url redis://redis:6379 default
+    command: rq worker --url redis://redis:6379 teacher_printer
     volumes:
       - ./printer_inputs:/app/printer_inputs
       - ./printer_outputs:/app/printer_outputs

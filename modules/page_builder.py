@@ -50,14 +50,15 @@ def build_output_pdf(job_id, selections_dict, output_path):
             image_names = pages_dict[page_num]
             layout = get_layout(len(image_names))
             
-            # Create page with images
+            # Create page with images - pass selections_dict for rotation info
             create_page_with_images(
                 c, 
                 images_folder, 
                 image_names, 
                 layout, 
                 a4_width, 
-                a4_height
+                a4_height,
+                selections_dict  # Pass for rotation lookup
             )
             
             c.showPage()  # Next page
@@ -77,15 +78,21 @@ def group_images_by_page(selections_dict):
     """Group images by output page number.
     
     Args:
-        selections_dict (dict): {img_001: 1, img_002: 1, img_003: 2, ...}
-                                Page 0 = excluded from PDF
+        selections_dict (dict): {img_001: {"page": 1, "rotation": 0}, ...}
+                               Page 0 = excluded from PDF
     
     Returns:
         dict: {1: [img_001, img_002], 2: [img_003], ...} with sorted image names
     """
     pages_dict = {}
     
-    for img_name, page_num in selections_dict.items():
+    for img_name, value in selections_dict.items():
+        # Handle both old format (int) and new format (dict)
+        if isinstance(value, dict):
+            page_num = value.get('page', 1)
+        else:
+            page_num = value if value is not None else 1
+        
         if page_num == 0:  # Skip excluded images
             continue
         if page_num not in pages_dict:
@@ -121,8 +128,8 @@ def get_layout(image_count):
     else:  # 7-9
         return (3, 3)
 
-def create_page_with_images(c, images_folder, image_names, layout, a4_width, a4_height):
-    """Arrange images on A4 page using ReportLab.
+def create_page_with_images(c, images_folder, image_names, layout, a4_width, a4_height, selections_dict=None):
+    """Arrange images on A4 page using ReportLab with rotation support.
     
     Args:
         c: ReportLab canvas object
@@ -131,6 +138,7 @@ def create_page_with_images(c, images_folder, image_names, layout, a4_width, a4_
         layout (tuple): (rows, cols) grid layout
         a4_width (float): A4 width in points
         a4_height (float): A4 height in points
+        selections_dict (dict, optional): Selections with rotation info {img_name: {'page': N, 'rotation': D}}
     """
     import gc
     
@@ -160,20 +168,28 @@ def create_page_with_images(c, images_folder, image_names, layout, a4_width, a4_
             img = Image.open(img_path)
             rotated_img = None
             
-            # Rotate image 90 degrees clockwise for 2-image horizontal layout
+            # Get user-specified rotation from selections
+            user_rotation = 0
+            if selections_dict and img_name in selections_dict:
+                value = selections_dict[img_name]
+                if isinstance(value, dict):
+                    user_rotation = value.get('rotation', 0)
+            
+            # Apply user rotation + auto-rotation for 2-image layout
+            total_rotation = user_rotation
             if len(image_names) == 2:
-                rotated_img = img.rotate(-90, expand=True)
-                # Wrap rotated image for reportlab
+                total_rotation += 90  # Add 90 degrees for 2-image layout
+            
+            # Apply rotation if needed
+            if total_rotation != 0:
+                rotated_img = img.rotate(-total_rotation, expand=True)
                 img_for_draw = ImageReader(rotated_img)
+                img_width, img_height = rotated_img.size
             else:
                 # Use original file path for non-rotated images
                 img_for_draw = img_path
-            
-            # Use rotated dimensions if image was rotated, otherwise original
-            if rotated_img:
-                img_width, img_height = rotated_img.size
-            else:
                 img_width, img_height = img.size
+            
             aspect = img_width / img_height
             
             # Calculate scaled dimensions to fit cell while maintaining aspect

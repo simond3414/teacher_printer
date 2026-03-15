@@ -52,7 +52,7 @@ def enqueue_generate_output_pdf(job_id, selections, output_path):
         job_id,
         selections,
         output_path,
-        job_id=f"tp:{job_id}:pdf",
+        job_id=f"tp-{job_id}-pdf",
         job_timeout=1800,              # 30 minutes per-job timeout
         retry=Retry(max=3, interval=[10, 30, 60]),
         result_ttl=600,                # Keep results for 10 minutes
@@ -81,7 +81,7 @@ def enqueue_process_zip(job_id, zip_path, filenames, dpi=200):
         zip_path,
         filenames,
         dpi,
-        job_id=f"tp:{job_id}:zip",
+        job_id=f"tp-{job_id}-zip",
         job_timeout=3600,              # 60 minutes per-job timeout
         retry=Retry(max=3, interval=[10, 30, 60]),
         result_ttl=600,                # Keep results for 10 minutes
@@ -108,7 +108,7 @@ def enqueue_process_pdf(job_id, pdf_path, dpi=200):
         job_id,
         pdf_path,
         dpi,
-        job_id=f"tp:{job_id}:convert",
+        job_id=f"tp-{job_id}-convert",
         job_timeout=600,               # 10 minutes per-job timeout
         retry=Retry(max=3, interval=[10, 30, 60]),
         result_ttl=600,                # Keep results for 10 minutes

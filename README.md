@@ -76,7 +76,7 @@ See [SETUP_REDIS.md](SETUP_REDIS.md) for local development setup with Redis.
 **Quick Start:**
 1. Start Redis: `docker run -d -p 6379:6379 redis:7-alpine`
 2. Install dependencies: `pip install -r requirements.txt`
-3. Terminal 1 - Worker: `rq worker --url redis://localhost:6379 default`
+3. Terminal 1 - Worker: `rq worker --url redis://localhost:6379 teacher_printer`
 4. Terminal 2 - Streamlit: `streamlit run app.py --server.port=8507`
 
 ### Prerequisites
