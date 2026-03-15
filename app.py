@@ -721,7 +721,69 @@ def render_pdf_generator():
     pdf_exists = os.path.exists(paths['output'])
     
     if pdf_exists:
-        # PDF exists - show regenerate and download side by side
+        # PDF exists - show optimization options first, then regenerate and download buttons
+        
+        # PDF Optimization Mode Selection (for regeneration)
+        st.subheader("📄 PDF Optimization")
+        optimization_mode = st.radio(
+            "Select optimization mode for regeneration:",
+            options=["optimized", "none"],
+            format_func=lambda x: {
+                "optimized": "✨ Optimized (Recommended) - Reduces file size while maintaining quality",
+                "none": "⚪ No Optimization - Fastest, keeps ReportLab output as-is"
+            }[x],
+            index=0,  # Default to optimized mode
+            help="Optimized mode intelligently compresses images and optimizes PDF structure. "
+                 "Typically reduces file size by 50-80%. "
+                 "No Optimization skips post-processing entirely (2-3x larger files).",
+            key="regenerate_opt_mode"  # Unique key for this radio button instance
+        )
+        
+        # Show advanced options for optimized mode
+        if optimization_mode == "optimized":
+            with st.expander("⚙️ Advanced Optimization Options"):
+                st.markdown("""
+                **Note:** These settings control the balance between file size and image quality.
+                Higher values = better quality but larger files.
+                Default settings are optimized for classroom materials.
+                """, unsafe_allow_html=True)
+                
+                # Store optimization settings in session state
+                if 'optimized_dpi_threshold' not in st.session_state:
+                    st.session_state.optimized_dpi_threshold = 250
+                if 'optimized_dpi_target' not in st.session_state:
+                    st.session_state.optimized_dpi_target = 200
+                if 'optimized_quality' not in st.session_state:
+                    st.session_state.optimized_quality = 85
+                
+                st.session_state.optimized_dpi_threshold = st.slider(
+                    "DPI Threshold", 
+                    min_value=200, 
+                    max_value=350, 
+                    value=st.session_state.optimized_dpi_threshold,
+                    help="Only process images above this DPI (default: 250)",
+                    key="regenerate_dpi_threshold"
+                )
+                st.session_state.optimized_dpi_target = st.slider(
+                    "Target DPI", 
+                    min_value=150, 
+                    max_value=250, 
+                    value=st.session_state.optimized_dpi_target,
+                    help="Downsample images to this DPI (default: 200)",
+                    key="regenerate_dpi_target"
+                )
+                st.session_state.optimized_quality = st.slider(
+                    "JPEG Quality", 
+                    min_value=75, 
+                    max_value=95, 
+                    value=st.session_state.optimized_quality,
+                    help="Quality for recompressed images (default: 85)",
+                    key="regenerate_quality"
+                )
+        
+        st.markdown("---")  # Separator
+        
+        # Show regenerate and download side by side
         col1, col2 = st.columns(2)
         
         with col1:
@@ -739,12 +801,13 @@ def render_pdf_generator():
                     error_msg = f"❌ Pages with too many images: {', '.join([f'Page {p} ({page_counts[p]} images)' for p in invalid_pages])}. Maximum 9 images per page."
                     st.error(error_msg)
                 else:
-                    # Submit PDF generation to background queue
+                    # Submit PDF generation to background queue with optimization mode
                     try:
                         rq_job = queue_config.enqueue_generate_output_pdf(
                             job_id,
                             current_selections,
-                            paths['output']
+                            paths['output'],
+                            optimization_mode
                         )
                         
                         # Store RQ job ID in session state
@@ -776,7 +839,64 @@ def render_pdf_generator():
                 )
     
     else:
-        # No PDF exists - show generate button
+        # No PDF exists - show optimization options and generate button
+        
+        # PDF Optimization Mode Selection
+        st.subheader("📄 PDF Optimization")
+        optimization_mode = st.radio(
+            "Select optimization mode:",
+            options=["optimized", "none"],
+            format_func=lambda x: {
+                "optimized": "✨ Optimized (Recommended) - Reduces file size while maintaining quality",
+                "none": "⚪ No Optimization - Fastest, keeps ReportLab output as-is"
+            }[x],
+            index=0,  # Default to optimized mode
+            help="Optimized mode intelligently compresses images and optimizes PDF structure. "
+                 "Typically reduces file size by 50-80%. "
+                 "No Optimization skips post-processing entirely (2-3x larger files)."
+        )
+        
+        # Show advanced options for optimized mode
+        if optimization_mode == "optimized":
+            with st.expander("⚙️ Advanced Optimization Options"):
+                st.markdown("""
+                **Note:** These settings control the balance between file size and image quality.
+                Higher values = better quality but larger files.
+                Default settings are optimized for classroom materials.
+                """, unsafe_allow_html=True)
+                
+                # Store optimization settings in session state
+                if 'optimized_dpi_threshold' not in st.session_state:
+                    st.session_state.optimized_dpi_threshold = 250
+                if 'optimized_dpi_target' not in st.session_state:
+                    st.session_state.optimized_dpi_target = 200
+                if 'optimized_quality' not in st.session_state:
+                    st.session_state.optimized_quality = 85
+                
+                st.session_state.optimized_dpi_threshold = st.slider(
+                    "DPI Threshold", 
+                    min_value=200, 
+                    max_value=350, 
+                    value=st.session_state.optimized_dpi_threshold,
+                    help="Only process images above this DPI (default: 250)"
+                )
+                st.session_state.optimized_dpi_target = st.slider(
+                    "Target DPI", 
+                    min_value=150, 
+                    max_value=250, 
+                    value=st.session_state.optimized_dpi_target,
+                    help="Downsample images to this DPI (default: 200)"
+                )
+                st.session_state.optimized_quality = st.slider(
+                    "JPEG Quality", 
+                    min_value=75, 
+                    max_value=95, 
+                    value=st.session_state.optimized_quality,
+                    help="Quality for recompressed images (default: 85)"
+                )
+        
+        st.markdown("---")  # Separator
+        
         if st.button("🎯 Generate PDF", type="primary"):
             # Auto-save current selections before generating
             existing_selections = batch_manager.load_selections(job_id)
@@ -791,12 +911,13 @@ def render_pdf_generator():
                 error_msg = f"❌ Pages with too many images: {', '.join([f'Page {p} ({page_counts[p]} images)' for p in invalid_pages])}. Maximum 9 images per page."
                 st.error(error_msg)
             else:
-                # Submit PDF generation to background queue
+                # Submit PDF generation to background queue with optimization mode
                 try:
                     rq_job = queue_config.enqueue_generate_output_pdf(
                         job_id,
                         current_selections,
-                        paths['output']
+                        paths['output'],
+                        optimization_mode
                     )
                     
                     # Store RQ job ID in session state

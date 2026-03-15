@@ -34,7 +34,7 @@ def get_tp_queue(default_timeout=900):
     )
 
 
-def enqueue_generate_output_pdf(job_id, selections, output_path):
+def enqueue_generate_output_pdf(job_id, selections, output_path, optimization_mode='safe'):
     """
     Enqueue a PDF generation job.
     
@@ -42,6 +42,7 @@ def enqueue_generate_output_pdf(job_id, selections, output_path):
         job_id (str): Job identifier
         selections (dict): Image to page number mappings
         output_path (str): Path for output PDF
+        optimization_mode (str): PDF optimization mode - 'safe', 'aggressive', or 'none'
     
     Returns:
         Job: RQ Job instance
@@ -52,6 +53,7 @@ def enqueue_generate_output_pdf(job_id, selections, output_path):
         job_id,
         selections,
         output_path,
+        optimization_mode,
         job_id=f"tp-{job_id}-pdf",
         job_timeout=1800,              # 30 minutes per-job timeout
         retry=Retry(max=3, interval=[10, 30, 60]),

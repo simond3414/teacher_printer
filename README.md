@@ -49,9 +49,16 @@ Uses **Redis Queue for background processing** with three containerized services
   - 3-4 images: 2×2 grid
   - 5-6 images: 3×2 grid
   - 7-9 images: 3×3 grid
-- **File Size Note**: Output PDFs are typically 2-3x the size of the original PDF. This is due to ReportLab's image embedding overhead when creating custom layouts with multiple images per page.
+- **PDF Optimization Options**: Choose from two optimization modes:
+  - **Optimized (Recommended)**: Intelligent image compression and PDF structure optimization. Reduces file size by 50-80% while maintaining excellent readability for classroom use.
+  - **No Optimization**: Fastest option, keeps the raw ReportLab output. Results in files 2-3x the original size.
+- **Advanced Settings**: When using Optimized mode, you can customize:
+  - DPI Threshold: Only compress images above this resolution (default: 250 DPI)
+  - Target DPI: Downsample images to this resolution (default: 200 DPI)
+  - JPEG Quality: Quality setting for compressed images (default: 85)
+- **File Size Note**: Without optimization, output PDFs are typically 2-3x the size of the original due to ReportLab's image embedding overhead. Using Optimized mode significantly reduces this to near-original or smaller sizes.
 - **Download Management**: Download generated PDFs with friendly names
-- **Regeneration**: Easily regenerate PDFs after making changes
+- **Regeneration**: Easily regenerate PDFs after making changes, with the ability to select a different optimization mode each time
 - **Validation Warnings**: Alert when jobs are incomplete or pages are overloaded
 
 ### 🔍 Debug Features

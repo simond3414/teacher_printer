@@ -41,3 +41,4 @@ watchdog==6.0.0
 redis==5.0.1
 rq==1.16.2
 streamlit-aggrid==1.2.1.post2
+pymupdf>=1.23.0

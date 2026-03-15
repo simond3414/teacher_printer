@@ -94,7 +94,7 @@ def process_pdf_to_images(job_id, pdf_path, dpi=200):
         }
 
 
-def generate_output_pdf(job_id, selections_dict, output_path):
+def generate_output_pdf(job_id, selections_dict, output_path, optimization_mode='safe'):
     """
     Background task: Generate final PDF from selected images.
     
@@ -102,6 +102,7 @@ def generate_output_pdf(job_id, selections_dict, output_path):
         job_id (str): Job identifier
         selections_dict (dict): Image to page number mappings
         output_path (str): Path for output PDF
+        optimization_mode (str): PDF optimization mode - 'safe', 'aggressive', or 'none'
     
     Returns:
         dict: Result with success status and details
@@ -121,8 +122,8 @@ def generate_output_pdf(job_id, selections_dict, output_path):
         job_display = metadata.get('friendly_name') or job_id
         print(f"[{timestamp}] WORKER: PDF generation started for {job_display}")
         
-        # Build PDF
-        success, msg = page_builder.build_output_pdf(job_id, selections_dict, output_path)
+        # Build PDF with optimization
+        success, msg = page_builder.build_output_pdf(job_id, selections_dict, output_path, optimization_mode)
         
         if rq_job:
             rq_job.meta['progress'] = 100

@@ -1,8 +1,9 @@
 # Purpose: convert pdf to images and manage image fidelity.
 #
-# NOTE: Output PDFs are typically 2-3x the size of the original.
+# NOTE: Output PDFs without optimization are typically 2-3x the size of the original.
 # This is due to ReportLab's inefficiency when embedding images in custom layouts.
-# JPEG quality is tuned to balance file size with readability for classroom use.
+# JPEG quality is tuned to 90-95 to provide excellent quality, knowing that
+# PyMuPDF will optimize the final PDF (Optimized mode) to reduce file size.
 
 import os
 import gc
@@ -82,16 +83,16 @@ def convert_pdf_to_images(pdf_path, job_id, dpi=None, start_index=1):
             img_index = start_index + page_num - 1
             
             # Calculate adaptive JPEG quality based on source file size
-            # Using gentle quality reduction to balance file size and readability
+            # Using higher quality settings (90-95) since PyMuPDF will optimize the final PDF
             file_size_mb = os.path.getsize(pdf_path) / (1024 * 1024)
             if file_size_mb < 5:
-                jpeg_quality = 75
+                jpeg_quality = 90
             elif file_size_mb < 20:
-                jpeg_quality = 78
+                jpeg_quality = 92
             elif file_size_mb < 50:
-                jpeg_quality = 82
+                jpeg_quality = 94
             else:
-                jpeg_quality = 85
+                jpeg_quality = 95
             
             img_filename = f"img_{img_index:03d}.jpg"
             img_path = os.path.join(images_folder, img_filename)
