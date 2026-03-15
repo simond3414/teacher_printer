@@ -219,6 +219,7 @@ teacworker.py                   # Background job processor (RQ worker)
 - **Pillow (PIL)**: Image manipulation and rotation
 - **reportlab**: PDF generation with custom layouts
 - **PyPDF2**: PDF validation
+- **PyMuPDF**: PDF optimization and image compression
 
 ### Session State Management
 - `current_job_id`: Active job identifier
@@ -240,7 +241,8 @@ teacworker.py                   # Background job processor (RQ worker)
   - **50-100 MB**: 150 DPI (acceptable quality)
   - **> 100 MB**: 120 DPI (readable, memory-safe)
 - **DPI Persistence**: Used DPI is saved to job metadata and displayed throughout the UI
-- **Format**: JPEG images with quality=85 compression
+- **Format**: JPEG images with adaptive quality (90-95 based on file size) for optimal clarity
+- **PDF Optimization**: PyMuPDF integration for intelligent image compression and structure optimization
 - **Thumbnails**: Max 800px for UI display
 - **Rotation**: 2-image layouts rotated -90° to landscape orientation
 - **Sorting**: Numerical sorting ensures consistent image order
@@ -322,5 +324,9 @@ Built with:
 ---
 
 **Author**: Simon  
-**Version**: 1.3  
+**Version**: 1.4  
 **Last Updated**: March 2026
+
+### Recent Updates
+- **v1.4**: Added PyMuPDF optimization with "Optimized" mode (50-80% file size reduction), removed ineffective "Safe" mode, fixed false "Redis not available" error during ZIP processing
+- **v1.3**: Added image rotation support, background job processing with Redis Queue, and adaptive DPI conversion
